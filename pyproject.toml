@@ -1,0 +1,155 @@
+[project]
+name = "sprout"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["jinja2>=3.0", "prompt-toolkit>=3.0.52", "rich>=13"]
+classifiers = []
+keywords = []
+
+[project.scripts]
+sprout = "sprout.cli:main"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Repository = "https://github.com/zigai/sprout"
+Issues = "https://github.com/zigai/sprout/issues"
+Homepage = "https://github.com/zigai/sprout"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sprout"]
+
+[tool.black]
+line-length = 100
+target_version = ['py312', 'py313']
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "F",       # Pyflakes
+    "E",       # Pycodestyle (Error)
+    'I',       # isort
+    'D',       # pydocstyle
+    'UP',      # pyupgrade
+    'YTT',     # flake8-2020
+    'B',       # flake8-bugbear
+    "PLE",     # pylint
+    'PYI006',  # flake8-pyi
+    'PYI019',  # flake8-pyi
+    'PYI024',  # flake8-pyi
+    'PYI030',  # flake8-pyi
+    'PYI062',  # flake8-pyi
+    'PYI063',  # flake8-pyi
+    'PYI066',  # flake8-pyi
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    "RUF005",
+    "RUF006",
+    "RUF012",
+    "RUF013",
+    "RUF016",
+    "RUF017",
+    "RUF018",
+    "RUF019",
+    "RUF020",
+    "RUF021",
+    "RUF024",
+    "RUF026",
+    "RUF030",
+    "RUF032",
+    "RUF033",
+    "RUF034",
+    "TRY002",
+    "TRY004",
+    "TRY201",
+    "TRY300",
+    "TRY301",
+    "TRY400",
+    "PERF101",
+    "RET503",
+    "LOG001",
+    "LOG002",
+]
+ignore = [
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D104",
+    'D105',
+    'D106',
+    'D107',
+    'D205',
+    "D212",
+    'D415',
+    'E501',
+    'B011',
+    'B028',
+    'B904',
+    'PIE804',
+    "N802",
+    "N803",
+    "N806",
+    "UP007",
+    "UP038",
+    "E741",
+]
+isort = { known-first-party = ["sprout"] }
+pydocstyle = { convention = 'google' }
+
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "tests/*",
+    "tests/**/*",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = [
+    "F401", # Unused import
+    "E402", # Module import not at top of file
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.hatch.envs.test]
+features = ["test"]
+installer = "uv"
+
+[[tool.hatch.envs.test.matrix]]
+python = ["3.12", "3.13"]
+
+[tool.hatch.envs.test.scripts]
+test = "pytest -v"
