@@ -15,8 +15,8 @@ from rich.console import Console
 from rich.control import Control, ControlType  # type:ignore
 from rich.text import Text
 
-from .question import Question
-from .style import Style
+from sprout.question import Question
+from sprout.style import Style
 
 if TYPE_CHECKING:
     from prompt_toolkit.key_binding.key_processor import KeyPressEvent

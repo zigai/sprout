@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import importlib.util
 import inspect
 import shutil
@@ -16,10 +17,10 @@ from jinja2 import Environment
 from jinja2.ext import Extension
 from rich.text import Text
 
-from .extensions import build_environment
-from .prompt import ask_question, collect_answers, console, supports_live_interaction
-from .question import Question
-from .style import Style
+from sprout.extensions import build_environment
+from sprout.prompt import ask_question, collect_answers, console, supports_live_interaction
+from sprout.question import Question
+from sprout.style import Style
 
 SkipPredicate = Callable[[Path, dict[str, Any]], bool]
 QuestionsSource = Sequence[Question] | Callable[[Environment, Path], Sequence[Question]]
@@ -38,6 +39,7 @@ class Manifest:
     apply: Callable[..., Any]
     style: Style | None = None
     extensions: Sequence[type[Extension]] | None = None
+    title: str | Callable[..., Any] | None = None
 
 
 def ensure_destination(path: Path, *, force: bool, style: Style | None = None) -> None:
@@ -68,24 +70,56 @@ def _confirm_overwrite(path: Path, *, style: Style) -> bool:
 
 
 def render_templates(
-    env: Environment,
+    env: Environment | None,
     template_dir: Path,
     destination: Path,
     answers: dict[str, Any],
     *,
     skip: SkipPredicate | None = None,
+    render_paths: bool = False,
+    ignore: Sequence[str] | None = None,
+    extensions: Sequence[type[Extension]] | None = None,
 ) -> list[Path]:
+    """Render a template directory into ``destination``.
+
+    - If ``render_paths`` is True, treat relative paths as Jinja templates and render them with ``answers`` (useful for names like ``"{{ package_name }}"``).
+    - ``ignore`` is a list of glob patterns (matched against file name) and special names to skip
+    """
     created: list[Path] = []
+    ignore = list(ignore or [])
+    default_ignore_globs = ["*.pyc", "*.pyo", "*.pyd", "*.swp", "*~", ".DS_Store"]
+    for pat in default_ignore_globs:
+        if pat not in ignore:
+            ignore.append(pat)
+
+    def _ignored(path: Path) -> bool:
+        if any(part == "__pycache__" for part in path.parts):
+            return True
+        name = path.name
+        return any(fnmatch.fnmatch(name, pat) for pat in ignore)
+
+    if env is None:
+        env = build_environment(template_dir, extensions=extensions or ())
 
     for source in sorted(template_dir.rglob("*")):
         if source.is_dir():
+            continue
+
+        if _ignored(source):
             continue
 
         relative = source.relative_to(template_dir)
         if skip and skip(relative, answers):
             continue
 
-        target_relative = relative.with_suffix("") if source.suffix == ".jinja" else relative
+        if render_paths:
+            rendered_rel_str = env.from_string(relative.as_posix()).render(**answers)
+            target_relative = Path(rendered_rel_str)
+            if source.suffix == ".jinja":
+                target_relative = target_relative.with_suffix("")
+        else:
+            target_relative = relative.with_suffix("") if source.suffix == ".jinja" else relative
+
         target_path = destination / target_relative
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -142,6 +176,7 @@ def run_template(
         destination,
         answers,
         skip=skip,
+        render_paths=True,
     )
 
     if not created:
@@ -164,6 +199,14 @@ def execute_manifest(
 ) -> tuple[dict[str, Any], Sequence[Path] | None]:
     style = manifest.style or Style()
     env = build_environment(template_dir, extensions=manifest.extensions or ())
+
+    _display_title(
+        manifest.title,
+        env=env,
+        template_dir=template_dir,
+        destination=destination,
+        style=style,
+    )
 
     questions = _resolve_questions(manifest.questions, env, destination)
     answers = collect_answers(questions, style=style)
@@ -387,12 +430,62 @@ def _load_manifest(template_dir: Path) -> Manifest:
             checked.append(extension)
         extensions = tuple(checked)
 
+    title = getattr(module, "title", None)
+    if title is not None and not (isinstance(title, str) or callable(title)):
+        raise SystemExit("title in sprout.py must be a string or a callable.")
+
     return Manifest(
         questions=questions,
         apply=apply_fn,
         style=style,
         extensions=extensions,
+        title=title,
     )
+
+
+def _display_title(
+    title: str | Callable[..., Any] | None,
+    *,
+    env: Environment,
+    template_dir: Path,
+    destination: Path,
+    style: Style,
+) -> None:
+    if title is None:
+        return
+
+    if isinstance(title, str):
+        console.print(title)
+        return
+
+    available: dict[str, Any] = {
+        "env": env,
+        "environment": env,
+        "template_dir": template_dir,
+        "template": template_dir,
+        "template_root": template_dir,
+        "destination": destination,
+        "dest": destination,
+        "project_dir": destination,
+        "output_dir": destination,
+        "style": style,
+        "console": console,
+    }
+
+    signature = inspect.signature(title)
+    kwargs: dict[str, Any] = {}
+    for name in signature.parameters:
+        if name in available:
+            kwargs[name] = available[name]
+
+    try:
+        result = title(**kwargs)  # type: ignore[misc]
+    except TypeError as error:
+        raise SystemExit(f"failed to run title(): {error}") from error
+
+    if result is None:
+        return
+    console.print(result)
 
 
 def _resolve_template(args: TemplateCLIArgs) -> tuple[Path, Callable[[], None], Manifest]:

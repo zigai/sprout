@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import subprocess
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -48,6 +49,12 @@ class GitDefaultsExtension(Extension):
         return ""
 
 
+class CurrentYearExtension(Extension):
+    def __init__(self, environment: Environment):
+        super().__init__(environment)
+        environment.globals["current_year"] = date.today().year
+
+
 DEFAULT_EXTENSIONS: tuple[type[Extension], ...] = (GitDefaultsExtension,)
 
 
@@ -76,4 +83,4 @@ def build_environment(
     return env
 
 
-__all__ = ["GitDefaultsExtension", "build_environment"]
+__all__ = ["GitDefaultsExtension", "CurrentYearExtension", "build_environment"]
