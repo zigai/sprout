@@ -35,8 +35,8 @@ class MenuStyle:
     bullet_unselected_style: str = "dim"
     text_selected_style: str = "bold"
     text_unselected_style: str = ""
-    instruction_single: str = "↑/↓ ←/→ move  Enter select"
-    instruction_multi: str = "↑/↓ ←/→ move  Space toggle  Enter confirm"
+    instruction_single: str = "↑/↓ move  Enter select"
+    instruction_multi: str = "↑/↓ move  Space toggle  Enter confirm"
     instruction_style: str = "dim"
 
 

@@ -140,9 +140,9 @@ def summarize(created: Sequence[Path]) -> None:
     if not created:
         return
 
-    console.print(Text("Generated files", style="bold green"))
+    console.print(Text("Generated files", style="white"))
     for path in created:
-        console.print(Text(f"  • {path}", style="green"))
+        console.print(Text(f"  • {path}", style="white"))
 
 
 def run_template(

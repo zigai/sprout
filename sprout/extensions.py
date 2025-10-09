@@ -45,8 +45,8 @@ class GitDefaultsExtension(Extension):
                     if match:
                         return match.group(1)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            return ""
-        return ""
+            return self._get_git_config("user.name")
+        return self._get_git_config("user.name")
 
 
 class CurrentYearExtension(Extension):
