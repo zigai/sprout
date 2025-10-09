@@ -89,9 +89,6 @@ Custom generation logic.
 * If provided: the function may request any of these parameters by name: `env`, `template_dir`, `template_root`, `destination`, `answers`, `style`, `console`, `render_templates`.
 
 ## Minimal example
-
-Without a custom apply:
-
 ```python
 from sprout import Question
 
