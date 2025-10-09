@@ -9,7 +9,7 @@ Interactive project generator that renders Jinja2 templates based on user input.
   ```
 
   ```bash
-  python -m pip install "git+https://github.com/zigai/sprout.git"
+  pip install "git+https://github.com/zigai/sprout.git"
   ```
 
 ## CLI help
