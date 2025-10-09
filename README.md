@@ -1,6 +1,6 @@
 # sprout
 
-Interactive project generator that renders Jinja2 templates based on user input.
+A Jinja2 project generator with Python-based configuration
 
 ## Installation
 
