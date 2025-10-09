@@ -6,6 +6,10 @@ from typing import Any
 
 from sprout.validators import ValidatorType
 
+ChoicesType = (
+    Sequence[tuple[str, str]] | Callable[[dict[str, Any]], Sequence[tuple[str, str]]] | None
+)
+
 
 @dataclass
 class Question:
@@ -13,7 +17,7 @@ class Question:
     prompt: str
     help: str = ""
     default: Any | Callable[[dict[str, Any]], Any] = None
-    choices: Sequence[tuple[str, str]] | None = None
+    choices: ChoicesType = None
     multiselect: bool = False
     parser: Callable[[str, dict[str, Any]], Any] | None = None
     validators: Sequence[ValidatorType] = field(default_factory=list)
@@ -22,6 +26,17 @@ class Question:
         if callable(self.default):
             return self.default(answers)
         return self.default
+
+    def resolve_choices(self, answers: dict[str, Any]) -> Sequence[tuple[str, str]] | None:
+        if callable(self.choices):
+            choices = self.choices(answers)
+        else:
+            choices = self.choices
+
+        if choices is None:
+            return None
+
+        return list(choices)
 
 
 __all__ = ["Question"]

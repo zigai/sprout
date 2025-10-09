@@ -41,29 +41,29 @@ def collect_answers(
 def ask_question(question: Question, answers: dict[str, Any], style: Style) -> Any:
     default_value = question.resolve_default(answers)
 
-    choices = question.choices
-    inline_choice_enabled = choices is not None and len(choices) == 2 and not question.multiselect
+    # resolve dynamic choices
+    resolved_choices = question.resolve_choices(answers)
+    choices: list[tuple[str, str]] = list(resolved_choices) if resolved_choices is not None else []
+    inline_choice_enabled = len(choices) == 2 and not question.multiselect
 
     if inline_choice_enabled and supports_live_interaction():
-        assert choices is not None
-        inline_choices = list(choices)
         selection = _prompt_toolkit_inline_choice(
             question,
-            inline_choices,
+            choices,
             default_value,
             style,
         )
         processed = _apply_parser(question, selection, answers)
         raw_selection = selection if isinstance(selection, str) else str(selection)
         _run_validator(question, processed, answers, raw_selection)
-        value_to_label: dict[Any, str | None] = {value: label for value, label in inline_choices}
+        value_to_label: dict[Any, str | None] = {value: label for value, label in choices}
         _print_choice_summary(question, selection, value_to_label, style)
         return processed
 
     inline_preview = ""
 
     if inline_choice_enabled and choices:
-        inline_preview = _format_inline_preview(question, default_value, style)
+        inline_preview = _format_inline_preview(question, default_value, style, choices)
 
     header = Text()
     header.append(style.prompt.prefix, style=style.prompt.prefix_style)
@@ -78,7 +78,7 @@ def ask_question(question: Question, answers: dict[str, Any], style: Style) -> A
         style.menu.instruction_multi if question.multiselect else style.menu.instruction_single
     )
 
-    if question.choices and instruction:
+    if choices and instruction:
         header.append("  ")
         header.append(instruction, style=style.menu.instruction_style)
 
@@ -88,8 +88,8 @@ def ask_question(question: Question, answers: dict[str, Any], style: Style) -> A
 
     console.print(header)
 
-    if question.choices:
-        return _interactive_choice(question, answers, default_value, style)
+    if choices:
+        return _interactive_choice(question, answers, default_value, style, choices)
 
     return _prompt_for_text(question, default_value, answers, style)
 
@@ -113,8 +113,9 @@ def _interactive_choice(
     answers: dict[str, Any],
     default_value: Any,
     style: Style,
+    choices: Sequence[tuple[str, str]],
 ) -> Any:
-    choices = list(question.choices or [])
+    choices = list(choices or [])
     if not choices:
         return default_value
 
@@ -196,12 +197,17 @@ def _prompt_for_text(
             return candidate
 
 
-def _format_inline_preview(question: Question, default_value: Any, style: Style) -> str:
-    if not question.choices:
+def _format_inline_preview(
+    question: Question,
+    default_value: Any,
+    style: Style,
+    choices: Sequence[tuple[str, str]],
+) -> str:
+    if not choices:
         return ""
 
     parts = []
-    for value, label in question.choices:
+    for value, label in choices:
         icon = (
             style.inline.selected_icon if value == default_value else style.inline.unselected_icon
         )
@@ -383,16 +389,19 @@ def _prompt_toolkit_inline_choice(
     pt_style = PTStyle.from_dict(
         {
             "prompt": style.prompt.text_style,
+            "prefix": style.prompt.prefix_style,
             "bullet.sel": style.inline.bullet_selected_style,
             "bullet": style.inline.bullet_unselected_style,
             "text.sel": style.inline.text_selected_style,
             "text": style.inline.text_unselected_style,
+            "hint": style.inline.instruction_style,
         }
     )
 
     def _render() -> list[tuple[str, str]]:
         fragments: list[tuple[str, str]] = []
-        fragments.append(("class:prompt", f"{style.prompt.prefix}{question.prompt} "))
+        fragments.append(("class:prefix", style.prompt.prefix))
+        fragments.append(("class:prompt", f"{question.prompt} "))
         for idx, (value, label) in enumerate(items):
             selected = idx == pointer_box[0]
             bullet_style = "class:bullet.sel" if selected else "class:bullet"
@@ -405,6 +414,10 @@ def _prompt_toolkit_inline_choice(
             fragments.append((text_style, str(display)))
             if idx != len(items) - 1:
                 fragments.append(("", style.inline.separator))
+
+        if style.inline.instruction:
+            fragments.append(("", "  "))
+            fragments.append(("class:hint", style.inline.instruction))
 
         return fragments
 
@@ -458,7 +471,7 @@ def _fallback_choice(
     style: Style | None = None,
 ) -> Any:
     style = style or Style()
-    choices = list(choices or question.choices or [])
+    choices = list(choices or [])
     if not choices:
         return default_value
 

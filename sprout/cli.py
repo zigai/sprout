@@ -80,7 +80,8 @@ def render_templates(
     ignore: Sequence[str] | None = None,
     extensions: Sequence[type[Extension]] | None = None,
 ) -> list[Path]:
-    """Render a template directory into ``destination``.
+    """
+    Render a template directory into ``destination``.
 
     - If ``render_paths`` is True, treat relative paths as Jinja templates and render them with ``answers`` (useful for names like ``"{{ package_name }}"``).
     - ``ignore`` is a list of glob patterns (matched against file name) and special names to skip
@@ -161,7 +162,7 @@ def run_template(
         banner()
 
     if not template_dir.exists():
-        raise SystemExit(f"template directory not found. Expected {template_dir} to exist.")
+        raise SystemExit(f"Template directory not found. Expected {template_dir} to exist.")
 
     env = build_environment(
         template_dir,
@@ -410,8 +411,10 @@ def _load_manifest(template_dir: Path) -> Manifest:
 
     questions = getattr(module, "questions", None)
     apply_fn = getattr(module, "apply", None)
+
     if questions is None:
         raise SystemExit("sprout.py must define a questions variable.")
+
     if not callable(apply_fn):
         raise SystemExit("sprout.py must define an apply() function.")
 
@@ -423,11 +426,13 @@ def _load_manifest(template_dir: Path) -> Manifest:
     if extensions is not None:
         if not isinstance(extensions, Sequence):
             raise SystemExit("extensions in sprout.py must be a sequence of Jinja2 extensions.")
+
         checked: list[type[Extension]] = []
         for extension in extensions:
             if not isinstance(extension, type) or not issubclass(extension, Extension):
                 raise SystemExit("each entry in extensions must be a Jinja2 Extension subclass.")
             checked.append(extension)
+
         extensions = tuple(checked)
 
     title = getattr(module, "title", None)
