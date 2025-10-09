@@ -72,7 +72,7 @@ def ask_question(question: Question, answers: dict[str, Any], style: Style) -> A
     header += question_text
 
     if question.help:
-        header.append(f" — {question.help}", style=style.prompt.help_style)
+        header.append(f" - {question.help}", style=style.prompt.help_style)
 
     instruction = (
         style.menu.instruction_multi if question.multiselect else style.menu.instruction_single
@@ -402,6 +402,7 @@ def _prompt_toolkit_inline_choice(
         fragments: list[tuple[str, str]] = []
         fragments.append(("class:prefix", style.prompt.prefix))
         fragments.append(("class:prompt", f"{question.prompt} "))
+
         for idx, (value, label) in enumerate(items):
             selected = idx == pointer_box[0]
             bullet_style = "class:bullet.sel" if selected else "class:bullet"
