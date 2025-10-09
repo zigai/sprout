@@ -22,7 +22,7 @@ from sprout.prompt import ask_question, collect_answers, console, supports_live_
 from sprout.question import Question
 from sprout.style import Style
 
-SkipPredicate = Callable[[Path, dict[str, Any]], bool]
+SkipPredicate = Callable[[str, dict[str, Any]], bool]
 QuestionsSource = Sequence[Question] | Callable[[Environment, Path], Sequence[Question]]
 
 
@@ -36,7 +36,9 @@ class TemplateCLIArgs:
 @dataclass(frozen=True)
 class Manifest:
     questions: QuestionsSource
-    apply: Callable[..., Any]
+    apply: Callable[..., Any] | None = None
+    template_dir: str | Path | None = None
+    skip: SkipPredicate | None = None
     style: Style | None = None
     extensions: Sequence[type[Extension]] | None = None
     title: str | Callable[..., Any] | None = None
@@ -110,7 +112,8 @@ def render_templates(
             continue
 
         relative = source.relative_to(template_dir)
-        if skip and skip(relative, answers):
+        relative_str = relative.as_posix()
+        if skip and skip(relative_str, answers):
             continue
 
         if render_paths:
@@ -125,7 +128,7 @@ def render_templates(
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
         if source.suffix == ".jinja":
-            template = env.get_template(relative.as_posix())
+            template = env.get_template(relative_str)
             rendered = template.render(**answers)
             target_path.write_text(rendered, encoding="utf-8")
         else:
@@ -199,12 +202,22 @@ def execute_manifest(
     force: bool = False,
 ) -> tuple[dict[str, Any], Sequence[Path] | None]:
     style = manifest.style or Style()
-    env = build_environment(template_dir, extensions=manifest.extensions or ())
+    template_root = template_dir
+
+    def _resolve_actual_template_dir(root: Path, declared: str | Path | None) -> Path:
+        if declared is None or (isinstance(declared, str) and declared.strip() == ""):
+            return (root / "template").resolve()
+        path = Path(declared)
+        return path if path.is_absolute() else (root / path).resolve()
+
+    actual_template_dir = _resolve_actual_template_dir(template_root, manifest.template_dir)
+
+    env = build_environment(actual_template_dir, extensions=manifest.extensions or ())
 
     _display_title(
         manifest.title,
         env=env,
-        template_dir=template_dir,
+        template_dir=template_root,
         destination=destination,
         style=style,
     )
@@ -213,14 +226,29 @@ def execute_manifest(
     answers = collect_answers(questions, style=style)
     ensure_destination(destination, force=force, style=style)
 
-    created = _invoke_apply(
-        manifest.apply,
-        env=env,
-        template_dir=template_dir,
-        destination=destination,
-        answers=answers,
-        style=style,
-    )
+    if manifest.apply is not None:
+        created = _invoke_apply(
+            manifest.apply,
+            env=env,
+            template_dir=actual_template_dir,
+            template_root=template_root,
+            destination=destination,
+            answers=answers,
+            style=style,
+        )
+    else:
+        if not actual_template_dir.exists():
+            raise SystemExit(
+                f"Template directory not found. Expected {actual_template_dir} to exist."
+            )
+        created = render_templates(
+            env,
+            actual_template_dir,
+            destination,
+            answers,
+            skip=manifest.skip,
+            render_paths=True,
+        )
 
     if created is None:
         return answers, None
@@ -240,20 +268,20 @@ def parse_cli_args(
 ) -> TemplateCLIArgs:
     parser = argparse.ArgumentParser(
         description=description
-        or "Generate a project from a sprout manifest (questions + apply function).",
+        or "generate a project from a sprout manifest (questions with optional apply)",
     )
     parser.add_argument(
         "template",
-        help="Path or git repository containing a sprout.py manifest.",
+        help="path or git repository containing a sprout.py manifest",
     )
     parser.add_argument(
         "destination",
-        help="Target directory for the generated project.",
+        help="target directory for the generated project",
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Overwrite files in the destination directory if they already exist.",
+        help="overwrite files in the destination directory if they already exist",
     )
     namespace = parser.parse_args(list(argv) if argv is not None else None)
     destination = Path(namespace.destination).expanduser().resolve()
@@ -301,6 +329,7 @@ def _invoke_apply(
     *,
     env: Environment,
     template_dir: Path,
+    template_root: Path,
     destination: Path,
     answers: dict[str, Any],
     style: Style,
@@ -310,7 +339,7 @@ def _invoke_apply(
         "environment": env,
         "template_dir": template_dir,
         "template": template_dir,
-        "template_root": template_dir,
+        "template_root": template_root,
         "destination": destination,
         "dest": destination,
         "project_dir": destination,
@@ -415,8 +444,8 @@ def _load_manifest(template_dir: Path) -> Manifest:
     if questions is None:
         raise SystemExit("sprout.py must define a questions variable.")
 
-    if not callable(apply_fn):
-        raise SystemExit("sprout.py must define an apply() function.")
+    if apply_fn is not None and not callable(apply_fn):
+        raise SystemExit("apply in sprout.py must be a callable if provided.")
 
     style = getattr(module, "style", None)
     if style is not None and not isinstance(style, Style):
@@ -439,9 +468,21 @@ def _load_manifest(template_dir: Path) -> Manifest:
     if title is not None and not (isinstance(title, str) or callable(title)):
         raise SystemExit("title in sprout.py must be a string or a callable.")
 
+    manifest_template_dir = getattr(module, "template_dir", None)
+    if manifest_template_dir is not None and not isinstance(manifest_template_dir, (str, Path)):
+        raise SystemExit("template_dir in sprout.py must be a string or a Path.")
+
+    skip = getattr(module, "should_skip_file", None)
+    if skip is not None and not callable(skip):
+        raise SystemExit(
+            "should_skip_file in sprout.py must be a callable taking (relative_path: str, answers)."
+        )
+
     return Manifest(
         questions=questions,
         apply=apply_fn,
+        template_dir=manifest_template_dir,
+        skip=skip,
         style=style,
         extensions=extensions,
         title=title,
