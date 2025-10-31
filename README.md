@@ -28,8 +28,6 @@ options:
   --force      overwrite files in the destination directory if they already exist
 ```
 
-Use “define” instead of “accepts.” Here’s a clean spec that treats them as module-level names you must define in `sprout.py`.
-
 ## `sprout.py` file
 
 The template repository or directory must contain a file named `sprout.py` at its root.
