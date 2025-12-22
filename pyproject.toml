@@ -92,6 +92,7 @@ select = [
     "E",       # Pycodestyle (Error)
     'I',       # isort
     'D',       # pydocstyle
+    'D213',    # pydocstyle
     'UP',      # pyupgrade
     'YTT',     # flake8-2020
     'B',       # flake8-bugbear
@@ -154,7 +155,6 @@ ignore = [
     "N803",
     "N806",
     "UP007",
-    "UP038",
 ]
 exclude = ["build", "tests/**"]
 
