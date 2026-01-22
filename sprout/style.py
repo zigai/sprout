@@ -61,7 +61,7 @@ class Style:
     summary: SummaryStyle = field(default_factory=SummaryStyle)
     error: ErrorStyle = field(default_factory=ErrorStyle)
     default_style: str = "dim"
-    input_prefix: str = "›"
+    input_prefix: str = "›"  # noqa: RUF001
 
 
 __all__ = [
