@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import fnmatch
 import importlib.util
 import inspect
@@ -13,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from interfacy import Argparser
+from interfacy.appearance import Modern
 from jinja2 import Environment
 from jinja2.ext import Extension
 from rich.text import Text
@@ -261,35 +262,38 @@ def execute_manifest(
     return answers, created_paths
 
 
-def parse_cli_args(
-    argv: Sequence[str] | None = None,
+def generate(
+    template: str,
+    destination: Path,
     *,
-    description: str | None = None,
-) -> TemplateCLIArgs:
-    parser = argparse.ArgumentParser(
-        description=description
-        or "generate a project from a sprout manifest (questions with optional apply)",
+    force: bool = False,
+) -> None:
+    """
+    Generate a project from a sprout manifest.
+
+    Args:
+        template: path or git repository containing a sprout.py manifest
+        destination: target directory for the generated project
+        force: overwrite files in the destination directory if they already exist
+    """
+    destination_path = Path(destination).expanduser().resolve()
+    args = TemplateCLIArgs(
+        template_src=template,
+        destination=destination_path,
+        force=force,
     )
-    parser.add_argument(
-        "template",
-        help="path or git repository containing a sprout.py manifest",
-    )
-    parser.add_argument(
-        "destination",
-        help="target directory for the generated project",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite files in the destination directory if they already exist",
-    )
-    namespace = parser.parse_args(list(argv) if argv is not None else None)
-    destination = Path(namespace.destination).expanduser().resolve()
-    return TemplateCLIArgs(
-        template_src=namespace.template,
-        destination=destination,
-        force=namespace.force,
-    )
+    cleanup: Callable[[], None] | None = None
+    try:
+        template_dir, cleanup, manifest = _resolve_template(args)
+        execute_manifest(
+            manifest,
+            template_dir=template_dir,
+            destination=args.destination,
+            force=args.force,
+        )
+    finally:
+        if cleanup:
+            cleanup()
 
 
 def _normalise_created(created: Sequence[Path | str], destination: Path) -> list[Path]:
@@ -541,30 +545,14 @@ def _resolve_template(args: TemplateCLIArgs) -> tuple[Path, Callable[[], None], 
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_cli_args(argv)
-    cleanup: Callable[[], None] | None = None
-    try:
-        template_dir, cleanup, manifest = _resolve_template(args)
-        execute_manifest(
-            manifest,
-            template_dir=template_dir,
-            destination=args.destination,
-            force=args.force,
-        )
-    except KeyboardInterrupt:  # pragma: no cover - interactive
-        console.print(Text("Aborted by user.", style="bold red"))
-        return 1
-    finally:
-        if cleanup:
-            cleanup()
-    return 0
+    return Argparser(help_layout=Modern()).run(generate)
 
 
 __all__ = [
     "TemplateCLIArgs",
     "Manifest",
     "ensure_destination",
-    "parse_cli_args",
+    "generate",
     "render_templates",
     "run_template",
     "execute_manifest",
