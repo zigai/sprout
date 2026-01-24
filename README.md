@@ -14,8 +14,10 @@ A Jinja2 project generator with Python-based configuration
 
 ## CLI help
 
+Sprout reads the template's questions and exposes them as CLI flags. Provide answers as flags to skip prompts; those questions won't appear in the TUI.
+
 ```text
-usage: sprout [-h] [--force] template destination
+usage: sprout [-h] [--force] [--<question-flag> <value> ...] template destination
 
 generate a project from a sprout manifest (questions with optional apply)
 
@@ -26,6 +28,7 @@ positional arguments:
 options:
   -h, --help   show this help message and exit
   --force      overwrite files in the destination directory if they already exist
+  --<question-flag>  answer a template question and skip the prompt
 ```
 
 ## `sprout.py` file
