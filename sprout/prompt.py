@@ -32,8 +32,17 @@ def collect_answers(
     initial_answers: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     style = style or Style()
-    answers: dict[str, Any] = dict(initial_answers or {})
+    answers: dict[str, Any] = {}
+    provided = dict(initial_answers or {})
     for question in questions:
+        if question.key in provided and provided[question.key] is not None:
+            raw_value = provided[question.key]
+            try:
+                answers[question.key] = _apply_cli_answer(question, raw_value, answers)
+            except ValueError as error:
+                raise SystemExit(f"{question.key}: {error}") from error
+            continue
+
         answers[question.key] = ask_question(question, answers, style)
     return answers
 
@@ -676,6 +685,37 @@ def _placeholder_key_bindings(default_text: str) -> KeyBindings:
         event.app.exit(exception=KeyboardInterrupt)
 
     return keybind
+
+
+def _apply_cli_answer(question: Question, value: Any, answers: dict[str, Any]) -> Any:
+    raw_value = value
+    if question.multiselect:
+        if isinstance(value, (list, tuple, set)):
+            values = [str(item) for item in value]
+        else:
+            values = [str(value)]
+        raw_value = ", ".join(values)
+    else:
+        values = [str(value)]
+
+    choices = question.resolve_choices(answers)
+    if choices:
+        allowed = {choice for choice, _label in choices}
+        if question.multiselect:
+            invalid = [item for item in values if item not in allowed]
+            if invalid:
+                raise ValueError(f"invalid choice(s): {', '.join(invalid)}")
+        else:
+            if values[0] not in allowed:
+                raise ValueError(f"invalid choice: {values[0]}")
+
+    if question.multiselect:
+        processed = values
+    else:
+        processed = _apply_parser(question, value, answers, raw=str(value))
+
+    _run_validator(question, processed, answers, raw=str(raw_value))
+    return processed
 
 
 def _apply_parser(

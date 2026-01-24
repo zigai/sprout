@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import argparse
 import fnmatch
 import importlib.util
 import inspect
+import re
 import shutil
 import subprocess
 import sys
@@ -12,8 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from interfacy import Argparser
-from interfacy.appearance import Modern
+from interfacy.appearance.layouts import InterfacyLayout
+from interfacy.argparse_backend.argument_parser import ArgumentParser, namespace_to_dict
 from jinja2 import Environment
 from jinja2.ext import Extension
 from rich.text import Text
@@ -43,6 +45,15 @@ class Manifest:
     style: Style | None = None
     extensions: Sequence[type[Extension]] | None = None
     title: str | Callable[..., Any] | None = None
+
+
+@dataclass(frozen=True)
+class PreparedTemplate:
+    template_src: str
+    template_dir: Path
+    manifest: Manifest
+    cleanup: Callable[[], None]
+    questions: Sequence[Question]
 
 
 def ensure_destination(path: Path, *, force: bool, style: Style | None = None) -> None:
@@ -149,6 +160,13 @@ def summarize(created: Sequence[Path]) -> None:
         console.print(Text(f"  • {path}", style="white"))
 
 
+def _resolve_actual_template_dir(root: Path, declared: str | Path | None) -> Path:
+    if declared is None or (isinstance(declared, str) and declared.strip() == ""):
+        return (root / "template").resolve()
+    path = Path(declared)
+    return path if path.is_absolute() else (root / path).resolve()
+
+
 def run_template(
     *,
     template_dir: Path,
@@ -157,6 +175,7 @@ def run_template(
     skip: SkipPredicate | None = None,
     extensions: Sequence[type[Extension]] | None = None,
     style: Style | None = None,
+    initial_answers: dict[str, Any] | None = None,
     force: bool = False,
     banner: Callable[[], None] | None = None,
     summary: Callable[[Sequence[Path]], None] | None = None,
@@ -173,7 +192,7 @@ def run_template(
         extensions=(extensions or ()),
     )
     questions = question_builder(env, destination)
-    answers = collect_answers(questions, style=style)
+    answers = collect_answers(questions, style=style, initial_answers=initial_answers)
     ensure_destination(destination, force=force, style=style)
     created = render_templates(
         env,
@@ -201,15 +220,10 @@ def execute_manifest(
     template_dir: Path,
     destination: Path,
     force: bool = False,
+    initial_answers: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], Sequence[Path] | None]:
     style = manifest.style or Style()
     template_root = template_dir
-
-    def _resolve_actual_template_dir(root: Path, declared: str | Path | None) -> Path:
-        if declared is None or (isinstance(declared, str) and declared.strip() == ""):
-            return (root / "template").resolve()
-        path = Path(declared)
-        return path if path.is_absolute() else (root / path).resolve()
 
     actual_template_dir = _resolve_actual_template_dir(template_root, manifest.template_dir)
 
@@ -224,7 +238,7 @@ def execute_manifest(
     )
 
     questions = _resolve_questions(manifest.questions, env, destination)
-    answers = collect_answers(questions, style=style)
+    answers = collect_answers(questions, style=style, initial_answers=initial_answers)
     ensure_destination(destination, force=force, style=style)
 
     if manifest.apply is not None:
@@ -264,18 +278,31 @@ def execute_manifest(
 
 def generate(
     template: str,
-    destination: Path,
+    destination: str | Path,
     *,
     force: bool = False,
-) -> None:
+) -> int:
     """
     Generate a project from a sprout manifest.
+
+    The manifest can define questions and an optional apply hook.
 
     Args:
         template: path or git repository containing a sprout.py manifest
         destination: target directory for the generated project
         force: overwrite files in the destination directory if they already exist
     """
+    return _run_generate(template, destination, force=force, initial_answers=None, prepared=None)
+
+
+def _run_generate(
+    template: str,
+    destination: str | Path,
+    *,
+    force: bool,
+    initial_answers: dict[str, Any] | None,
+    prepared: PreparedTemplate | None,
+) -> int:
     destination_path = Path(destination).expanduser().resolve()
     args = TemplateCLIArgs(
         template_src=template,
@@ -283,17 +310,27 @@ def generate(
         force=force,
     )
     cleanup: Callable[[], None] | None = None
+    use_prepared = prepared is not None and prepared.template_src == template
     try:
-        template_dir, cleanup, manifest = _resolve_template(args)
+        if use_prepared:
+            template_dir = prepared.template_dir
+            manifest = prepared.manifest
+        else:
+            template_dir, cleanup, manifest = _resolve_template(args)
         execute_manifest(
             manifest,
             template_dir=template_dir,
             destination=args.destination,
             force=args.force,
+            initial_answers=initial_answers,
         )
+    except KeyboardInterrupt:  # pragma: no cover - interactive
+        console.print(Text("Aborted by user.", style="bold red"))
+        return 1
     finally:
         if cleanup:
             cleanup()
+    return 0
 
 
 def _normalise_created(created: Sequence[Path | str], destination: Path) -> list[Path]:
@@ -544,8 +581,198 @@ def _resolve_template(args: TemplateCLIArgs) -> tuple[Path, Callable[[], None], 
     return template_dir, cleanup, manifest
 
 
+def _sanitize_question_key(key: str) -> str:
+    cleaned = re.sub(r"[^0-9a-zA-Z_]", "_", key)
+    if not cleaned:
+        cleaned = "question"
+    if cleaned[0].isdigit():
+        cleaned = f"q_{cleaned}"
+    return cleaned
+
+
+def _extract_template_destination(
+    args: Sequence[str] | None,
+) -> tuple[str | None, Path | None]:
+    if not args:
+        return None, None
+
+    template: str | None = None
+    destination: str | None = None
+    end_of_opts = False
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token == "--":
+            end_of_opts = True
+            i += 1
+            continue
+
+        if not end_of_opts and token.startswith("-"):
+            if token in ("-h", "--help", "--force"):
+                i += 1
+                continue
+            if "=" in token:
+                i += 1
+                continue
+            if i + 1 < len(args):
+                next_token = args[i + 1]
+                if next_token == "--" or next_token.startswith("-"):
+                    i += 1
+                    continue
+                i += 2
+                continue
+            i += 1
+            continue
+
+        if template is None:
+            template = token
+        elif destination is None:
+            destination = token
+            break
+        i += 1
+
+    if template is None or destination is None:
+        return template, None
+    return template, Path(destination).expanduser().resolve()
+
+
+def _load_questions_for_cli(template_src: str, destination: Path) -> PreparedTemplate:
+    template_dir, cleanup = _prepare_template_source(template_src)
+    try:
+        manifest = _load_manifest(template_dir)
+        actual_template_dir = _resolve_actual_template_dir(template_dir, manifest.template_dir)
+        env = build_environment(actual_template_dir, extensions=manifest.extensions or ())
+        questions = _resolve_questions(manifest.questions, env, destination)
+    except Exception:
+        cleanup()
+        raise
+    return PreparedTemplate(
+        template_src=template_src,
+        template_dir=template_dir,
+        manifest=manifest,
+        cleanup=cleanup,
+        questions=questions,
+    )
+
+
+def _format_question_help(question: Question) -> str:
+    description = question.prompt
+    if question.help:
+        description = f"{description} - {question.help}"
+
+    try:
+        if callable(question.choices):
+            choices = None
+        else:
+            choices = question.resolve_choices({})
+    except Exception:
+        choices = None
+
+    if choices:
+        values = ", ".join(value for value, _label in choices)
+        description = f"{description} (choices: {values})"
+
+    if question.multiselect:
+        description = f"{description} (multiple values allowed)"
+    return description
+
+
+def _flag_from_question_key(key: str) -> str:
+    cleaned = key.strip().replace("_", "-")
+    cleaned = re.sub(r"[^0-9a-zA-Z-]", "-", cleaned)
+    cleaned = cleaned.strip("-")
+    return cleaned.lower() or "question"
+
+
+def _build_cli_parser(prepared: PreparedTemplate | None) -> ArgumentParser:
+    layout = InterfacyLayout()
+    parser = ArgumentParser(
+        prog="sprout",
+        description="Generate a project from a sprout manifest.",
+        help_layout=layout,
+    )
+    parser.add_argument(
+        "template",
+        help="path or git repository containing a sprout.py manifest",
+    )
+    parser.add_argument(
+        "destination",
+        help="target directory for the generated project",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite files in the destination directory if they already exist",
+    )
+
+    if prepared is None:
+        return parser
+
+    used_dests = {"template", "destination", "force", "help"}
+    for question in prepared.questions:
+        dest = _sanitize_question_key(question.key)
+        if dest in used_dests:
+            continue
+        used_dests.add(dest)
+
+        flag = f"--{_flag_from_question_key(question.key)}"
+        kwargs: dict[str, Any] = {
+            "dest": dest,
+            "help": _format_question_help(question),
+            "default": argparse.SUPPRESS,
+            "type": str,
+        }
+
+        if not callable(question.choices):
+            choices = question.resolve_choices({})
+            if choices:
+                kwargs["choices"] = [value for value, _label in choices]
+
+        if question.multiselect:
+            kwargs["action"] = "append"
+
+        parser.add_argument(flag, **kwargs)
+
+    return parser
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    return Argparser(help_layout=Modern()).run(generate)
+    args_list = list(argv) if argv is not None else None
+    inspect_args = args_list if args_list is not None else sys.argv[1:]
+    prepared: PreparedTemplate | None = None
+
+    template_src, destination = _extract_template_destination(inspect_args)
+    if template_src and destination is not None:
+        prepared = _load_questions_for_cli(template_src, destination)
+
+    parser = _build_cli_parser(prepared)
+    try:
+        parsed, _unknown = parser.parse_known_args(args_list)
+        namespace = namespace_to_dict(parsed)
+        template = namespace.get("template")
+        destination_value = namespace.get("destination")
+        force = bool(namespace.get("force", False))
+        cli_answers: dict[str, Any] = {}
+
+        if prepared is not None:
+            for question in prepared.questions:
+                dest = _sanitize_question_key(question.key)
+                if dest in namespace:
+                    cli_answers[question.key] = namespace[dest]
+
+        if template is None or destination_value is None:
+            raise SystemExit("template and destination are required.")
+
+        return _run_generate(
+            template,
+            destination_value,
+            force=force,
+            initial_answers=cli_answers or None,
+            prepared=prepared,
+        )
+    finally:
+        if prepared is not None:
+            prepared.cleanup()
 
 
 __all__ = [
