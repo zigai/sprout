@@ -65,10 +65,10 @@ class Style:
 
 
 __all__ = [
-    "PromptStyle",
+    "ErrorStyle",
     "InlineStyle",
     "MenuStyle",
-    "SummaryStyle",
-    "ErrorStyle",
+    "PromptStyle",
     "Style",
+    "SummaryStyle",
 ]
