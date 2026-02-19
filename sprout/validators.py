@@ -13,7 +13,7 @@ SSH_URL_PATTERN = re.compile(r"^git@[\w.-]+:[\w./-]+$")
 
 def validate_repository_url(
     value: str,
-    answers: Mapping[str, Any] | None = None,
+    _answers: Mapping[str, Any] | None = None,
 ) -> tuple[bool, str | None]:
     url = value.strip()
     if not url:

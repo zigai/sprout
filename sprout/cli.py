@@ -12,6 +12,7 @@ import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from interfacy.appearance.layouts import InterfacyLayout
@@ -83,6 +84,51 @@ def _confirm_overwrite(path: Path, *, style: Style) -> bool:
     return answer == "yes"
 
 
+def _merge_ignore_patterns(ignore: Sequence[str] | None) -> list[str]:
+    patterns = list(ignore or ())
+    for pattern in ("*.pyc", "*.pyo", "*.pyd", "*.swp", "*~", ".DS_Store"):
+        if pattern not in patterns:
+            patterns.append(pattern)
+    return patterns
+
+
+def _should_ignore_path(path: Path, ignore_patterns: Sequence[str]) -> bool:
+    if "__pycache__" in path.parts:
+        return True
+    return any(fnmatch.fnmatch(path.name, pattern) for pattern in ignore_patterns)
+
+
+def _resolve_target_relative(
+    source: Path,
+    relative: Path,
+    *,
+    env: Environment,
+    answers: dict[str, Any],
+    render_paths: bool,
+) -> Path:
+    if render_paths:
+        rendered = env.from_string(relative.as_posix()).render(**answers)
+        target_relative = Path(rendered)
+    else:
+        target_relative = relative
+    return target_relative.with_suffix("") if source.suffix == ".jinja" else target_relative
+
+
+def _render_source_file(
+    source: Path,
+    target_path: Path,
+    relative_str: str,
+    *,
+    env: Environment,
+    answers: dict[str, Any],
+) -> None:
+    if source.suffix == ".jinja":
+        template = env.get_template(relative_str)
+        target_path.write_text(template.render(**answers), encoding="utf-8")
+        return
+    shutil.copy2(source, target_path)
+
+
 def render_templates(
     env: Environment | None,
     template_dir: Path,
@@ -101,26 +147,13 @@ def render_templates(
     - ``ignore`` is a list of glob patterns (matched against file name) and special names to skip
     """
     created: list[Path] = []
-    ignore = list(ignore or [])
-    default_ignore_globs = ["*.pyc", "*.pyo", "*.pyd", "*.swp", "*~", ".DS_Store"]
-    for pat in default_ignore_globs:
-        if pat not in ignore:
-            ignore.append(pat)
-
-    def _ignored(path: Path) -> bool:
-        if any(part == "__pycache__" for part in path.parts):
-            return True
-        name = path.name
-        return any(fnmatch.fnmatch(name, pat) for pat in ignore)
+    ignore_patterns = _merge_ignore_patterns(ignore)
 
     if env is None:
         env = build_environment(template_dir, extensions=extensions or ())
 
     for source in sorted(template_dir.rglob("*")):
-        if source.is_dir():
-            continue
-
-        if _ignored(source):
+        if source.is_dir() or _should_ignore_path(source, ignore_patterns):
             continue
 
         relative = source.relative_to(template_dir)
@@ -128,24 +161,16 @@ def render_templates(
         if skip and skip(relative_str, answers):
             continue
 
-        if render_paths:
-            rendered_rel_str = env.from_string(relative.as_posix()).render(**answers)
-            target_relative = Path(rendered_rel_str)
-            if source.suffix == ".jinja":
-                target_relative = target_relative.with_suffix("")
-        else:
-            target_relative = relative.with_suffix("") if source.suffix == ".jinja" else relative
-
+        target_relative = _resolve_target_relative(
+            source,
+            relative,
+            env=env,
+            answers=answers,
+            render_paths=render_paths,
+        )
         target_path = destination / target_relative
         target_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if source.suffix == ".jinja":
-            template = env.get_template(relative_str)
-            rendered = template.render(**answers)
-            target_path.write_text(rendered, encoding="utf-8")
-        else:
-            shutil.copy2(source, target_path)
-
+        _render_source_file(source, target_path, relative_str, env=env, answers=answers)
         created.append(target_relative)
 
     return created
@@ -351,10 +376,7 @@ def _resolve_questions(
     env: Environment,
     destination: Path,
 ) -> Sequence[Question]:
-    if callable(source):
-        resolved = source(env, destination)
-    else:
-        resolved = source
+    resolved = source(env, destination) if callable(source) else source
 
     if not isinstance(resolved, Sequence):
         raise SystemExit("questions must be a sequence of Question instances.")
@@ -422,21 +444,27 @@ def _prepare_template_source(template_src: str) -> tuple[Path, Callable[[], None
     url = _normalise_git_url(template_src)
     temp_dir = Path(tempfile.mkdtemp(prefix="sprout-template-"))
     target_dir = temp_dir / "template"
+    git_executable = _resolve_git_executable()
 
     try:
-        subprocess.run(
-            ["git", "clone", "--depth", "1", url, str(target_dir)],
+        subprocess.run(  # noqa: S603 - validated git clone invocation
+            [git_executable, "clone", "--depth", "1", "--", url, str(target_dir)],
             check=True,
             capture_output=True,
             text=True,
         )
-    except FileNotFoundError:
-        raise SystemExit("git is required to clone remote templates.")
     except subprocess.CalledProcessError as error:  # pragma: no cover - external dependency
         stderr = error.stderr.strip() if error.stderr else str(error)
         raise SystemExit(f"failed to clone template from {url}: {stderr}") from error
 
     return target_dir, lambda: shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _resolve_git_executable() -> str:
+    git_executable = shutil.which("git")
+    if git_executable is None:
+        raise SystemExit("git is required to clone remote templates.")
+    return git_executable
 
 
 def _normalise_git_url(template_src: str) -> str:
@@ -445,19 +473,12 @@ def _normalise_git_url(template_src: str) -> str:
         return cleaned
     if cleaned.count("/") == 1 and " " not in cleaned:
         owner, repo = cleaned.split("/", maxsplit=1)
-        if repo.endswith(".git"):
-            repo_name = repo
-        else:
-            repo_name = f"{repo}.git"
+        repo_name = repo if repo.endswith(".git") else f"{repo}.git"
         return f"https://github.com/{owner}/{repo_name}"
     return cleaned
 
 
-def _load_manifest(template_dir: Path) -> Manifest:
-    manifest_path = template_dir / "sprout.py"
-    if not manifest_path.is_file():
-        raise SystemExit(f"template source {template_dir} is missing sprout.py.")
-
+def _load_manifest_module(template_dir: Path, manifest_path: Path) -> ModuleType:
     module_name = "sprout_template_manifest"
     spec = importlib.util.spec_from_file_location(module_name, manifest_path)
     if spec is None or spec.loader is None:
@@ -465,59 +486,95 @@ def _load_manifest(template_dir: Path) -> Manifest:
 
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
-    sys_path_added = False
+    template_path = str(template_dir)
+    added_to_path = False
     try:
-        if str(template_dir) not in sys.path:
-            sys.path.insert(0, str(template_dir))
-            sys_path_added = True
+        if template_path not in sys.path:
+            sys.path.insert(0, template_path)
+            added_to_path = True
         spec.loader.exec_module(module)
     finally:
-        if sys_path_added:
+        if added_to_path:
             try:
-                sys.path.remove(str(template_dir))
+                sys.path.remove(template_path)
             except ValueError:
                 pass
         sys.modules.pop(module_name, None)
+    return module
 
+
+def _manifest_questions(module: ModuleType) -> QuestionsSource:
     questions = getattr(module, "questions", None)
-    apply_fn = getattr(module, "apply", None)
-
     if questions is None:
         raise SystemExit("sprout.py must define a questions variable.")
+    return questions
 
+
+def _manifest_apply(module: ModuleType) -> Callable[..., Any] | None:
+    apply_fn = getattr(module, "apply", None)
     if apply_fn is not None and not callable(apply_fn):
         raise SystemExit("apply in sprout.py must be a callable if provided.")
+    return apply_fn
 
+
+def _manifest_style(module: ModuleType) -> Style | None:
     style = getattr(module, "style", None)
     if style is not None and not isinstance(style, Style):
         raise SystemExit("style in sprout.py must be an instance of sprout.style.Style.")
+    return style
 
+
+def _manifest_extensions(module: ModuleType) -> tuple[type[Extension], ...] | None:
     extensions = getattr(module, "extensions", None)
-    if extensions is not None:
-        if not isinstance(extensions, Sequence):
-            raise SystemExit("extensions in sprout.py must be a sequence of Jinja2 extensions.")
+    if extensions is None:
+        return None
+    if not isinstance(extensions, Sequence):
+        raise SystemExit("extensions in sprout.py must be a sequence of Jinja2 extensions.")
 
-        checked: list[type[Extension]] = []
-        for extension in extensions:
-            if not isinstance(extension, type) or not issubclass(extension, Extension):
-                raise SystemExit("each entry in extensions must be a Jinja2 Extension subclass.")
-            checked.append(extension)
+    checked: list[type[Extension]] = []
+    for extension in extensions:
+        if not isinstance(extension, type) or not issubclass(extension, Extension):
+            raise SystemExit("each entry in extensions must be a Jinja2 Extension subclass.")
+        checked.append(extension)
+    return tuple(checked)
 
-        extensions = tuple(checked)
 
+def _manifest_title(module: ModuleType) -> str | Callable[..., Any] | None:
     title = getattr(module, "title", None)
     if title is not None and not (isinstance(title, str) or callable(title)):
         raise SystemExit("title in sprout.py must be a string or a callable.")
+    return title
 
-    manifest_template_dir = getattr(module, "template_dir", None)
-    if manifest_template_dir is not None and not isinstance(manifest_template_dir, (str, Path)):
+
+def _manifest_template_dir(module: ModuleType) -> str | Path | None:
+    template_dir = getattr(module, "template_dir", None)
+    if template_dir is not None and not isinstance(template_dir, (str, Path)):
         raise SystemExit("template_dir in sprout.py must be a string or a Path.")
+    return template_dir
 
+
+def _manifest_skip(module: ModuleType) -> SkipPredicate | None:
     skip = getattr(module, "should_skip_file", None)
     if skip is not None and not callable(skip):
         raise SystemExit(
             "should_skip_file in sprout.py must be a callable taking (relative_path: str, answers)."
         )
+    return skip
+
+
+def _load_manifest(template_dir: Path) -> Manifest:
+    manifest_path = template_dir / "sprout.py"
+    if not manifest_path.is_file():
+        raise SystemExit(f"template source {template_dir} is missing sprout.py.")
+
+    module = _load_manifest_module(template_dir, manifest_path)
+    questions = _manifest_questions(module)
+    apply_fn = _manifest_apply(module)
+    style = _manifest_style(module)
+    extensions = _manifest_extensions(module)
+    title = _manifest_title(module)
+    manifest_template_dir = _manifest_template_dir(module)
+    skip = _manifest_skip(module)
 
     return Manifest(
         questions=questions,
@@ -590,48 +647,50 @@ def _sanitize_question_key(key: str) -> str:
     return cleaned
 
 
+_FLAG_ONLY_OPTIONS = {"-h", "--help", "--force"}
+
+
+def _consume_optional_value(args: Sequence[str], index: int) -> int:
+    option = args[index]
+    if option in _FLAG_ONLY_OPTIONS or "=" in option:
+        return index + 1
+
+    next_index = index + 1
+    if next_index >= len(args):
+        return next_index
+
+    next_arg = args[next_index]
+    if next_arg == "--" or next_arg.startswith("-"):
+        return index + 1
+    return index + 2
+
+
 def _extract_template_destination(
     args: Sequence[str] | None,
 ) -> tuple[str | None, Path | None]:
     if not args:
         return None, None
 
-    template: str | None = None
-    destination: str | None = None
+    positional: list[str] = []
     end_of_opts = False
     i = 0
-    while i < len(args):
-        token = args[i]
-        if token == "--":
+    while i < len(args) and len(positional) < 2:
+        arg_value = args[i]
+        if not end_of_opts and arg_value == "--":
             end_of_opts = True
             i += 1
             continue
 
-        if not end_of_opts and token.startswith("-"):
-            if token in ("-h", "--help", "--force"):
-                i += 1
-                continue
-            if "=" in token:
-                i += 1
-                continue
-            if i + 1 < len(args):
-                next_token = args[i + 1]
-                if next_token == "--" or next_token.startswith("-"):
-                    i += 1
-                    continue
-                i += 2
-                continue
-            i += 1
+        if not end_of_opts and arg_value.startswith("-"):
+            i = _consume_optional_value(args, i)
             continue
 
-        if template is None:
-            template = token
-        elif destination is None:
-            destination = token
-            break
+        positional.append(arg_value)
         i += 1
 
-    if template is None or destination is None:
+    template = positional[0] if positional else None
+    destination = positional[1] if len(positional) > 1 else None
+    if destination is None:
         return template, None
     return template, Path(destination).expanduser().resolve()
 
@@ -661,11 +720,8 @@ def _format_question_help(question: Question) -> str:
         description = f"{description} - {question.help}"
 
     try:
-        if callable(question.choices):
-            choices = None
-        else:
-            choices = question.resolve_choices({})
-    except Exception:
+        choices = None if callable(question.choices) else question.resolve_choices({})
+    except TypeError:
         choices = None
 
     if choices:
@@ -776,13 +832,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 __all__ = [
-    "TemplateCLIArgs",
     "Manifest",
+    "TemplateCLIArgs",
     "ensure_destination",
+    "execute_manifest",
     "generate",
+    "main",
     "render_templates",
     "run_template",
-    "execute_manifest",
     "summarize",
-    "main",
 ]
