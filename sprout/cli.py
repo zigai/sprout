@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 
 from interfacy.appearance.layouts import InterfacyLayout
 from interfacy.argparse_backend.argument_parser import ArgumentParser, namespace_to_dict
@@ -335,9 +335,8 @@ def _run_generate(
         force=force,
     )
     cleanup: Callable[[], None] | None = None
-    use_prepared = prepared is not None and prepared.template_src == template
     try:
-        if use_prepared:
+        if prepared is not None and prepared.template_src == template:
             template_dir = prepared.template_dir
             manifest = prepared.manifest
         else:
@@ -503,36 +502,78 @@ def _load_manifest_module(template_dir: Path, manifest_path: Path) -> ModuleType
     return module
 
 
+def _validate_questions_signature(questions: Callable[..., Any]) -> None:
+    try:
+        signature = inspect.signature(questions)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(
+            "questions callable in sprout.py must accept (env, destination) parameters."
+        ) from error
+
+    parameters = tuple(signature.parameters.values())
+    allowed_kinds = {
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    }
+    valid_shape = len(parameters) == 2 and all(
+        parameter.kind in allowed_kinds for parameter in parameters
+    )
+
+    if not valid_shape:
+        raise SystemExit(
+            "questions callable in sprout.py must accept exactly two positional "
+            "parameters: (env, destination)."
+        )
+
+
 def _manifest_questions(module: ModuleType) -> QuestionsSource:
-    questions = getattr(module, "questions", None)
-    if questions is None:
+    questions_obj: object | None = getattr(module, "questions", None)
+    if questions_obj is None:
         raise SystemExit("sprout.py must define a questions variable.")
-    return questions
+
+    if isinstance(questions_obj, Sequence) and not isinstance(
+        questions_obj, (str, bytes, bytearray)
+    ):
+        return cast(QuestionsSource, questions_obj)
+
+    if callable(questions_obj):
+        questions_fn = cast(Callable[..., Any], questions_obj)
+        _validate_questions_signature(questions_fn)
+        return cast(QuestionsSource, questions_fn)
+
+    raise SystemExit("questions in sprout.py must be a sequence or a callable.")
 
 
 def _manifest_apply(module: ModuleType) -> Callable[..., Any] | None:
-    apply_fn = getattr(module, "apply", None)
-    if apply_fn is not None and not callable(apply_fn):
+    apply_obj: object | None = getattr(module, "apply", None)
+    if apply_obj is None:
+        return None
+    if not callable(apply_obj):
         raise SystemExit("apply in sprout.py must be a callable if provided.")
-    return apply_fn
+    return cast(Callable[..., Any], apply_obj)
 
 
 def _manifest_style(module: ModuleType) -> Style | None:
-    style = getattr(module, "style", None)
-    if style is not None and not isinstance(style, Style):
+    style_obj: object | None = getattr(module, "style", None)
+    if style_obj is None:
+        return None
+    if not isinstance(style_obj, Style):
         raise SystemExit("style in sprout.py must be an instance of sprout.style.Style.")
-    return style
+    return style_obj
 
 
 def _manifest_extensions(module: ModuleType) -> tuple[type[Extension], ...] | None:
-    extensions = getattr(module, "extensions", None)
-    if extensions is None:
+    extensions_obj: object | None = getattr(module, "extensions", None)
+    if extensions_obj is None:
         return None
-    if not isinstance(extensions, Sequence):
+    if not isinstance(extensions_obj, Sequence) or isinstance(
+        extensions_obj,
+        (str, bytes, bytearray),
+    ):
         raise SystemExit("extensions in sprout.py must be a sequence of Jinja2 extensions.")
 
     checked: list[type[Extension]] = []
-    for extension in extensions:
+    for extension in extensions_obj:
         if not isinstance(extension, type) or not issubclass(extension, Extension):
             raise SystemExit("each entry in extensions must be a Jinja2 Extension subclass.")
         checked.append(extension)
@@ -540,26 +581,61 @@ def _manifest_extensions(module: ModuleType) -> tuple[type[Extension], ...] | No
 
 
 def _manifest_title(module: ModuleType) -> str | Callable[..., Any] | None:
-    title = getattr(module, "title", None)
-    if title is not None and not (isinstance(title, str) or callable(title)):
-        raise SystemExit("title in sprout.py must be a string or a callable.")
-    return title
+    title_obj: object | None = getattr(module, "title", None)
+    if title_obj is None:
+        return None
+    if isinstance(title_obj, str):
+        return title_obj
+    if callable(title_obj):
+        return cast(Callable[..., Any], title_obj)
+    raise SystemExit("title in sprout.py must be a string or a callable.")
 
 
 def _manifest_template_dir(module: ModuleType) -> str | Path | None:
-    template_dir = getattr(module, "template_dir", None)
-    if template_dir is not None and not isinstance(template_dir, (str, Path)):
+    template_dir_obj: object | None = getattr(module, "template_dir", None)
+    if template_dir_obj is None:
+        return None
+    if not isinstance(template_dir_obj, (str, Path)):
         raise SystemExit("template_dir in sprout.py must be a string or a Path.")
-    return template_dir
+    return template_dir_obj
+
+
+def _validate_skip_signature(skip: Callable[..., Any]) -> None:
+    try:
+        signature = inspect.signature(skip)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(
+            "should_skip_file in sprout.py must be a callable with "
+            "(relative_path: str, answers) parameters."
+        ) from error
+
+    parameters = tuple(signature.parameters.values())
+    allowed_kinds = {
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    }
+    valid_shape = len(parameters) == 2 and all(
+        parameter.kind in allowed_kinds for parameter in parameters
+    )
+
+    if not valid_shape:
+        raise SystemExit(
+            "should_skip_file in sprout.py must accept exactly two positional "
+            "parameters: (relative_path: str, answers)."
+        )
 
 
 def _manifest_skip(module: ModuleType) -> SkipPredicate | None:
-    skip = getattr(module, "should_skip_file", None)
-    if skip is not None and not callable(skip):
+    skip_obj: object | None = getattr(module, "should_skip_file", None)
+    if skip_obj is None:
+        return None
+    if not callable(skip_obj):
         raise SystemExit(
             "should_skip_file in sprout.py must be a callable taking (relative_path: str, answers)."
         )
-    return skip
+    skip_fn = cast(Callable[..., Any], skip_obj)
+    _validate_skip_signature(skip_fn)
+    return cast(SkipPredicate, skip_fn)
 
 
 def _load_manifest(template_dir: Path) -> Manifest:
@@ -623,7 +699,7 @@ def _display_title(
             kwargs[name] = available[name]
 
     try:
-        result = title(**kwargs)  # type: ignore[misc]
+        result = title(**kwargs)
     except TypeError as error:
         raise SystemExit(f"failed to run title(): {error}") from error
 

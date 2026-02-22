@@ -47,6 +47,14 @@ def collect_answers(
                 raise SystemExit(f"{question.key}: {error}") from error
             continue
 
+        try:
+            should_ask = question.should_ask(answers)
+        except (TypeError, ValueError) as error:
+            raise SystemExit(f"{question.key}: {error}") from error
+
+        if not should_ask:
+            continue
+
         answers[question.key] = ask_question(question, answers, style)
     return answers
 
@@ -168,7 +176,7 @@ def _prompt_for_text(
 ) -> object:
     while True:
         if supports_live_interaction():
-            session = PromptSession()
+            session: PromptSession[str] = PromptSession()
             has_default = default_value not in (None, "", [])
             prompt_kwargs: dict[str, Any] = {}
             if has_default:
@@ -248,7 +256,7 @@ def _prompt_toolkit_choice(
         pointer = min(selected_indices) if selected_indices else 0
     else:
         selected_indices = set()
-        pointer = value_to_index.get(default_value, 0)
+        pointer = value_to_index.get(default_value, 0) if isinstance(default_value, str) else 0
 
     pointer_box = [pointer]
     selected_box = set(selected_indices)
@@ -294,7 +302,7 @@ def _prompt_toolkit_choice(
     body_control = FormattedTextControl(_render)
     body = Window(content=body_control, always_hide_cursor=True)
 
-    app = Application(
+    app: Application[object] = Application(
         layout=Layout(HSplit([body])),
         key_bindings=_choice_key_bindings(
             pointer_box,
@@ -416,7 +424,7 @@ def _prompt_toolkit_inline_choice(
 ) -> object:
     items = list(choices)
     value_to_index = {value: idx for idx, (value, _) in enumerate(items)}
-    pointer = value_to_index.get(default_value, 0)
+    pointer = value_to_index.get(default_value, 0) if isinstance(default_value, str) else 0
     pointer_box = [pointer]
 
     pt_style = PTStyle.from_dict(
@@ -482,7 +490,7 @@ def _prompt_toolkit_inline_choice(
     def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
         event.app.exit(exception=KeyboardInterrupt)
 
-    app = Application(
+    app: Application[object] = Application(
         layout=Layout(HSplit([body])),
         key_bindings=keybind,
         mouse_support=False,
@@ -783,6 +791,7 @@ def _apply_cli_answer(question: Question, value: object, answers: dict[str, Any]
         elif values[0] not in allowed:
             raise ValueError(f"invalid choice: {values[0]}")
 
+    processed: object
     if question.multiselect:
         processed = values
     else:
