@@ -58,6 +58,52 @@ Define **one** of:
       ...
   ```
 
+### Conditional questions
+
+Questions can be conditionally shown with `when`. The condition can be a `bool` or a callable that
+receives previously collected answers and returns `True`/`False`.
+
+```python
+from sprout import Question
+
+questions = [
+    Question(
+        key="use_mit_license",
+        prompt="Use an MIT license?",
+        choices=[("yes", "Yes"), ("no", "No")],
+        default="yes",
+    ),
+    Question(
+        key="license_reason",
+        prompt="Why are you skipping a license?",
+        when=lambda answers: answers.get("use_mit_license") == "no",
+    ),
+]
+```
+
+Notes:
+
+* Conditions are evaluated in question order, so dependencies should come earlier in the list.
+* If a question is skipped by `when`, its key is omitted from `answers`.
+* Explicit CLI flags still win; if `--license-reason` is passed, the value is used even when
+  `when` would be false.
+
+### Yes/No questions
+
+Use `Question.yes_no(...)` to avoid manually wiring `choices` and a bool parser.
+
+```python
+from sprout import Question
+
+questions = [
+    Question.yes_no(
+        key="create_github_repo",
+        prompt="Create GitHub repository now?",
+        default=False,
+    ),
+]
+```
+
 ### `template_dir` (optional)
 
 Path to the templates directory. Relative paths resolve from the repository root. Default: `template`.
