@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import configparser
+import datetime as dt
 import os
 import re
 from collections.abc import Sequence
-from datetime import datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -116,7 +116,7 @@ class GitDefaultsExtension(Extension):
 class CurrentYearExtension(Extension):
     def __init__(self, environment: Environment) -> None:
         super().__init__(environment)
-        environment.globals["current_year"] = datetime.now(tz=datetime.UTC).year
+        environment.globals["current_year"] = dt.datetime.now(tz=dt.UTC).year
 
 
 DEFAULT_EXTENSIONS: tuple[type[Extension], ...] = (GitDefaultsExtension,)
