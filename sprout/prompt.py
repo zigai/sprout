@@ -35,6 +35,18 @@ def collect_answers(
     style: Style | None = None,
     initial_answers: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """
+    Collect answers for each question in order and return the resulting mapping.
+
+    Args:
+        questions (Sequence[Question]): Questions to evaluate and optionally prompt for.
+        style (Style | None): Optional style overrides used for interactive prompting.
+        initial_answers (dict[str, Any] | None): Optional CLI-provided answers keyed by question
+            key. Non-None values bypass interactive prompts.
+
+    Raises:
+        SystemExit: If a CLI-provided answer is invalid or a `when` condition fails validation.
+    """
     style = style or Style()
     answers: dict[str, Any] = {}
     provided = dict(initial_answers or {})
@@ -60,6 +72,17 @@ def collect_answers(
 
 
 def ask_question(question: Question, answers: dict[str, Any], style: Style) -> object:
+    """
+    Prompt for one question and return the parsed answer value.
+
+    Args:
+        question (Question): Question definition including parsing and validation rules.
+        answers (dict[str, Any]): Previously collected answers used for dynamic behavior.
+        style (Style): Prompt rendering configuration.
+
+    Raises:
+        ValueError: If inline-choice parsing or validation fails.
+    """
     default_value = question.resolve_default(answers)
 
     # resolve dynamic choices
@@ -116,6 +139,13 @@ def ask_question(question: Question, answers: dict[str, Any], style: Style) -> o
 
 
 def confirm_overwrite(path: Path, *, style: Style) -> bool:
+    """
+    Ask for overwrite confirmation and return whether to continue.
+
+    Args:
+        path (Path): Destination path shown in the confirmation prompt.
+        style (Style): Prompt rendering configuration.
+    """
     if not supports_live_interaction():
         return False
 
@@ -841,6 +871,7 @@ def _choice_label(value: str, label: str | None) -> str:
 
 
 def supports_live_interaction() -> bool:
+    """Return whether both stdin and stdout are attached to a TTY."""
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 

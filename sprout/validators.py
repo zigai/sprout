@@ -15,6 +15,14 @@ def validate_repository_url(
     value: str,
     _answers: Mapping[str, Any] | None = None,
 ) -> tuple[bool, str | None]:
+    """
+    Validate a repository URL and return a `(valid, message)` pair.
+
+    Args:
+        value (str): Candidate repository URL. Leading and trailing whitespace is ignored.
+        _answers (Mapping[str, Any] | None): Optional answers map for interface compatibility.
+            This parameter is unused.
+    """
     url = value.strip()
     if not url:
         return True, None

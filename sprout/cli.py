@@ -32,6 +32,15 @@ QuestionsSource = Sequence[Question] | Callable[[Environment, Path], Sequence[Qu
 
 @dataclass(frozen=True)
 class TemplateCLIArgs:
+    """
+    Hold normalized CLI arguments for template execution.
+
+    Attributes:
+        template_src (str): Template source path, Git URL, or owner/repo shorthand.
+        destination (Path): Absolute destination directory path.
+        force (bool): Whether to allow overwriting in a non-empty destination.
+    """
+
     template_src: str
     destination: Path
     force: bool = False
@@ -39,6 +48,19 @@ class TemplateCLIArgs:
 
 @dataclass(frozen=True)
 class Manifest:
+    """
+    Describe a loaded `sprout.py` manifest.
+
+    Attributes:
+        questions (QuestionsSource): Question sequence or callable that builds questions.
+        apply (Callable[..., Any] | None): Optional custom file-generation hook.
+        template_dir (str | Path | None): Optional template subdirectory relative to template root.
+        skip (SkipPredicate | None): Optional predicate that skips files during rendering.
+        style (Style | None): Optional style overrides for prompt rendering.
+        extensions (Sequence[type[Extension]] | None): Optional Jinja extension classes.
+        title (str | Callable[..., Any] | None): Optional static or dynamic title renderer.
+    """
+
     questions: QuestionsSource
     apply: Callable[..., Any] | None = None
     template_dir: str | Path | None = None
@@ -50,6 +72,17 @@ class Manifest:
 
 @dataclass(frozen=True)
 class PreparedTemplate:
+    """
+    Hold preloaded manifest state used for CLI argument parsing and generation.
+
+    Attributes:
+        template_src (str): Template source used for this prepared manifest.
+        template_dir (Path): Resolved local template directory.
+        manifest (Manifest): Loaded manifest definition.
+        cleanup (Callable[[], None]): Cleanup callback for temporary resources.
+        questions (Sequence[Question]): Resolved questions available for CLI flags.
+    """
+
     template_src: str
     template_dir: Path
     manifest: Manifest
@@ -58,6 +91,17 @@ class PreparedTemplate:
 
 
 def ensure_destination(path: Path, *, force: bool, style: Style | None = None) -> None:
+    """
+    Ensure destination directory exists and confirm overwrites when needed.
+
+    Args:
+        path (Path): Destination directory path.
+        force (bool): Whether to skip overwrite confirmation for non-empty directories.
+        style (Style | None): Optional style overrides used for confirmation prompts.
+
+    Raises:
+        SystemExit: If `path` points to a file or the user declines overwrite confirmation.
+    """
     style = style or Style()
     if path.exists():
         if path.is_file():
@@ -143,8 +187,9 @@ def render_templates(
     """
     Render a template directory into ``destination``.
 
-    - If ``render_paths`` is True, treat relative paths as Jinja templates and render them with ``answers`` (useful for names like ``"{{ package_name }}"``).
-    - ``ignore`` is a list of glob patterns (matched against file name) and special names to skip
+    - If ``render_paths`` is True, treat relative paths as Jinja templates and render them with
+      ``answers`` (useful for names like ``"{{ package_name }}"``).
+    - ``ignore`` is a list of glob patterns (matched against file name) and special names to skip.
     """
     created: list[Path] = []
     ignore_patterns = _merge_ignore_patterns(ignore)
@@ -177,6 +222,12 @@ def render_templates(
 
 
 def summarize(created: Sequence[Path]) -> None:
+    """
+    Print a summary of generated relative file paths.
+
+    Args:
+        created (Sequence[Path]): Created paths relative to the destination directory.
+    """
     if not created:
         return
 
@@ -205,6 +256,26 @@ def run_template(
     banner: Callable[[], None] | None = None,
     summary: Callable[[Sequence[Path]], None] | None = None,
 ) -> tuple[dict[str, Any], Sequence[Path]]:
+    """
+    Generate files from a template directory and return answers with created paths.
+
+    Args:
+        template_dir (Path): Template directory that contains files to render.
+        destination (Path): Output directory for generated files.
+        question_builder (Callable[[Environment, Path], Sequence[Question]]): Callable that builds
+            questions from the Jinja environment and destination path.
+        skip (SkipPredicate | None): Optional predicate that skips files by relative path.
+        extensions (Sequence[type[Extension]] | None): Optional Jinja extension classes.
+        style (Style | None): Optional style overrides used while prompting.
+        initial_answers (dict[str, Any] | None): Optional pre-filled answers keyed by question key.
+        force (bool): Whether to skip overwrite confirmation for non-empty destinations.
+        banner (Callable[[], None] | None): Optional callback invoked before prompting.
+        summary (Callable[[Sequence[Path]], None] | None): Optional callback used to print a
+            generation summary.
+
+    Raises:
+        SystemExit: If `template_dir` does not exist or destination checks fail.
+    """
     style = style or Style()
     if banner:
         banner()
@@ -247,6 +318,19 @@ def execute_manifest(
     force: bool = False,
     initial_answers: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], Sequence[Path] | None]:
+    """
+    Execute a manifest workflow and return answers with created paths.
+
+    Args:
+        manifest (Manifest): Loaded manifest definition to execute.
+        template_dir (Path): Template root that contains `sprout.py` and template files.
+        destination (Path): Output directory for generated files.
+        force (bool): Whether to skip overwrite confirmation for non-empty destinations.
+        initial_answers (dict[str, Any] | None): Optional pre-filled answers keyed by question key.
+
+    Raises:
+        SystemExit: If manifest hooks fail validation or template directories are missing.
+    """
     style = manifest.style or Style()
     template_root = template_dir
 
@@ -869,6 +953,15 @@ def _build_cli_parser(prepared: PreparedTemplate | None) -> ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """
+    Run the CLI entrypoint and return an exit status code.
+
+    Args:
+        argv (Sequence[str] | None): Optional argument vector. If None, use `sys.argv[1:]`.
+
+    Raises:
+        SystemExit: If argument parsing or template execution fails.
+    """
     args_list = list(argv) if argv is not None else None
     inspect_args = args_list if args_list is not None else sys.argv[1:]
     prepared: PreparedTemplate | None = None
