@@ -68,15 +68,16 @@ from sprout import Question
 
 questions = [
     Question(
-        key="use_mit_license",
-        prompt="Use an MIT license?",
+        key="include_ci",
+        prompt="Set up CI?",
         choices=[("yes", "Yes"), ("no", "No")],
         default="yes",
     ),
     Question(
-        key="license_reason",
-        prompt="Why are you skipping a license?",
-        when=lambda answers: answers.get("use_mit_license") == "no",
+        key="ci_provider",
+        prompt="Which CI provider should we use?",
+        choices=[("github", "GitHub Actions"), ("gitlab", "GitLab CI")],
+        when=lambda answers: answers.get("include_ci") == "yes",
     ),
 ]
 ```
@@ -85,7 +86,7 @@ Notes:
 
 * Conditions are evaluated in question order, so dependencies should come earlier in the list.
 * If a question is skipped by `when`, its key is omitted from `answers`.
-* Explicit CLI flags still win; if `--license-reason` is passed, the value is used even when
+* Explicit CLI flags still win; if `--ci-provider` is passed, the value is used even when
   `when` would be false.
 
 ### Yes/No questions
