@@ -5,15 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class PromptStyle:
-    """
-    Configure prompt header rendering.
-
-    Attributes:
-        prefix (str): Prefix shown before each question prompt.
-        prefix_style (str): Rich style string applied to `prefix`.
-        text_style (str): Rich style string applied to question text.
-        help_style (str): Rich style string applied to helper text.
-    """
+    """Configure prompt header rendering."""
 
     prefix: str = "? "
     prefix_style: str = "bold cyan"
@@ -23,21 +15,7 @@ class PromptStyle:
 
 @dataclass
 class InlineStyle:
-    """
-    Configure inline two-choice rendering.
-
-    Attributes:
-        selected_icon (str): Icon shown for the currently selected choice.
-        unselected_icon (str): Icon shown for unselected choices.
-        separator (str): Separator inserted between inline choices.
-        prompt_style (str): Rich style string applied to the prompt row.
-        bullet_selected_style (str): Rich style string for selected choice icons.
-        bullet_unselected_style (str): Rich style string for unselected choice icons.
-        text_selected_style (str): Rich style string for selected choice labels.
-        text_unselected_style (str): Rich style string for unselected choice labels.
-        instruction (str): Instruction text shown near the inline selector.
-        instruction_style (str): Rich style string applied to `instruction`.
-    """
+    """Configure inline two-choice rendering."""
 
     selected_icon: str = "●"
     unselected_icon: str = "○"
@@ -53,22 +31,7 @@ class InlineStyle:
 
 @dataclass
 class MenuStyle:
-    """
-    Configure vertical menu rendering for multi-choice prompts.
-
-    Attributes:
-        caret_icon (str): Caret marker shown before the active menu row.
-        caret_style (str): Rich style string applied to `caret_icon`.
-        bullet_selected_icon (str): Icon shown for selected choices.
-        bullet_unselected_icon (str): Icon shown for unselected choices.
-        bullet_selected_style (str): Rich style string for selected choice icons.
-        bullet_unselected_style (str): Rich style string for unselected choice icons.
-        text_selected_style (str): Rich style string for selected choice labels.
-        text_unselected_style (str): Rich style string for unselected choice labels.
-        instruction_single (str): Instruction text for single-select menus.
-        instruction_multi (str): Instruction text for multi-select menus.
-        instruction_style (str): Rich style string applied to instruction text.
-    """
+    """Configure vertical menu rendering for multi-choice prompts."""
 
     caret_icon: str = "▌  "
     caret_style: str = "bold ansicyan"
@@ -85,14 +48,7 @@ class MenuStyle:
 
 @dataclass
 class SummaryStyle:
-    """
-    Configure answer summary rendering.
-
-    Attributes:
-        prefix (str): Prefix displayed before each summarized answer.
-        selected_style (str): Rich style string applied to selected answer text.
-        dim_style (str): Rich style string applied to de-emphasized summary text.
-    """
+    """Configure answer summary rendering."""
 
     prefix: str = "  → "
     selected_style: str = "bold green"
@@ -101,13 +57,7 @@ class SummaryStyle:
 
 @dataclass
 class ErrorStyle:
-    """
-    Configure validation error rendering.
-
-    Attributes:
-        label (str): Label displayed before each error message.
-        style (str): Rich style string applied to the error label.
-    """
+    """Configure validation error rendering."""
 
     label: str = "Error:"
     style: str = "bold red"
@@ -115,18 +65,7 @@ class ErrorStyle:
 
 @dataclass
 class Style:
-    """
-    Aggregate all prompt rendering styles.
-
-    Attributes:
-        prompt (PromptStyle): Style configuration for prompt headers.
-        inline (InlineStyle): Style configuration for inline yes/no-like selectors.
-        menu (MenuStyle): Style configuration for vertical choice menus.
-        summary (SummaryStyle): Style configuration for printed answer summaries.
-        error (ErrorStyle): Style configuration for validation errors.
-        default_style (str): Rich style string used as a default fallback.
-        input_prefix (str): Prefix shown before text input prompts.
-    """
+    """Aggregate all prompt rendering styles."""
 
     prompt: PromptStyle = field(default_factory=PromptStyle)
     inline: InlineStyle = field(default_factory=InlineStyle)
