@@ -14,7 +14,12 @@ A Jinja2 project generator with Python-based configuration
 
 ## CLI help
 
-Sprout reads the template's questions and exposes them as CLI flags. Provide answers as flags to skip prompts; those questions won't appear in the TUI.
+Sprout reads template questions and exposes them as CLI flags.
+
+Use `sprout <template> --help` to show template-specific flags with best-effort question resolution.
+For destination-aware question resolution, use `sprout <template> <destination> --help`.
+
+Provide answers as flags to skip prompts; those questions won't appear in the TUI.
 
 ```text
 usage: sprout [-h] [--force] [--<question-flag> <value> ...] template destination
