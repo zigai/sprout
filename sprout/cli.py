@@ -808,6 +808,12 @@ def _sanitize_question_key(key: str) -> str:
 
 
 _FLAG_ONLY_OPTIONS = {"-h", "--help", "--force"}
+_HELP_OPTIONS = {"-h", "--help"}
+_HELP_PROBE_DESTINATION = "__sprout_help_destination__"
+_HELP_PRELOAD_FALLBACK_NOTE = (
+    "Template-specific options could not be resolved from template-only help. "
+    "Run sprout <template> <destination> --help for full template-aware options."
+)
 
 
 def _consume_optional_value(args: Sequence[str], index: int) -> int:
@@ -823,6 +829,12 @@ def _consume_optional_value(args: Sequence[str], index: int) -> int:
     if next_arg == "--" or next_arg.startswith("-"):
         return index + 1
     return index + 2
+
+
+def _has_help_option(args: Sequence[str] | None) -> bool:
+    if not args:
+        return False
+    return any(value in _HELP_OPTIONS for value in args)
 
 
 def _extract_template_destination(
@@ -862,7 +874,7 @@ def _load_questions_for_cli(template_src: str, destination: Path) -> PreparedTem
         actual_template_dir = _resolve_actual_template_dir(template_dir, manifest.template_dir)
         env = build_environment(actual_template_dir, extensions=manifest.extensions or ())
         questions = _resolve_questions(manifest.questions, env, destination)
-    except Exception:
+    except (Exception, SystemExit):
         cleanup()
         raise
     return PreparedTemplate(
@@ -879,15 +891,6 @@ def _format_question_help(question: Question) -> str:
     if question.help:
         description = f"{description} - {question.help}"
 
-    try:
-        choices = None if callable(question.choices) else question.resolve_choices({})
-    except TypeError:
-        choices = None
-
-    if choices:
-        values = ", ".join(value for value, _label in choices)
-        description = f"{description} (choices: {values})"
-
     if question.multiselect:
         description = f"{description} (multiple values allowed)"
     return description
@@ -900,11 +903,18 @@ def _flag_from_question_key(key: str) -> str:
     return cleaned.lower() or "question"
 
 
-def _build_cli_parser(prepared: PreparedTemplate | None) -> ArgumentParser:
+def _build_cli_parser(
+    prepared: PreparedTemplate | None,
+    *,
+    help_note: str | None = None,
+) -> ArgumentParser:
     layout = InterfacyLayout()
+    description = "Generate a project from a sprout manifest."
+    if help_note:
+        description = f"{description}\n\n{help_note}"
     parser = ArgumentParser(
         prog="sprout",
-        description="Generate a project from a sprout manifest.",
+        description=description,
         help_layout=layout,
     )
     parser.add_argument(
@@ -965,12 +975,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     args_list = list(argv) if argv is not None else None
     inspect_args = args_list if args_list is not None else sys.argv[1:]
     prepared: PreparedTemplate | None = None
+    help_note: str | None = None
 
     template_src, destination = _extract_template_destination(inspect_args)
+    help_requested = _has_help_option(inspect_args)
     if template_src and destination is not None:
         prepared = _load_questions_for_cli(template_src, destination)
+    elif template_src and help_requested:
+        try:
+            probe_destination = (Path.cwd() / _HELP_PROBE_DESTINATION).resolve()
+            prepared = _load_questions_for_cli(template_src, probe_destination)
+        except SystemExit:
+            help_note = _HELP_PRELOAD_FALLBACK_NOTE
+        except Exception:  # noqa: BLE001 - help output should not fail on preload errors.
+            help_note = _HELP_PRELOAD_FALLBACK_NOTE
 
-    parser = _build_cli_parser(prepared)
+    parser = _build_cli_parser(prepared, help_note=help_note)
     try:
         parsed, _unknown = parser.parse_known_args(args_list)
         namespace = namespace_to_dict(parsed)

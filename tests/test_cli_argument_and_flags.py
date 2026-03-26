@@ -56,7 +56,7 @@ def test_sanitize_question_key_and_flag_generation() -> None:
     assert _flag_from_question_key("Project_Name!") == "project-name"
 
 
-def test_format_question_help_includes_choices_and_multiselect() -> None:
+def test_format_question_help_keeps_prompt_and_multiselect_note() -> None:
     question = Question(
         key="workflow",
         prompt="Workflow",
@@ -68,8 +68,18 @@ def test_format_question_help_includes_choices_and_multiselect() -> None:
     message = _format_question_help(question)
 
     assert "Workflow - Pick one" in message
-    assert "choices: tests, lint" in message
+    assert "choices:" not in message
     assert "multiple values allowed" in message
+
+
+def test_build_cli_parser_help_shows_choices_once() -> None:
+    parser = _build_cli_parser(
+        _prepared_template([Question(key="kind", prompt="Kind", choices=[("lib", "Library")])])
+    )
+
+    help_text = parser.format_help()
+
+    assert help_text.count("choices: lib") == 1
 
 
 def test_build_cli_parser_adds_question_flags() -> None:
@@ -158,6 +168,82 @@ def test_main_passes_cli_answers_to_run_generate(monkeypatch: pytest.MonkeyPatch
     assert result == 7
     assert captured["initial_answers"] == {"name": "sample"}
     assert cleanup_called["value"] is True
+
+
+def test_main_template_only_help_preloads_questions(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    questions = [Question(key="name", prompt="Project name")]
+    cleanup_called = {"value": False}
+    captured: dict[str, object] = {}
+
+    prepared = PreparedTemplate(
+        template_src="template",
+        template_dir=Path(),
+        manifest=Manifest(questions=questions),
+        cleanup=lambda: cleanup_called.update(value=True),
+        questions=questions,
+    )
+
+    def fake_load_questions_for_cli(template_src: str, destination: Path) -> PreparedTemplate:
+        captured["template_src"] = template_src
+        captured["destination"] = destination
+        return prepared
+
+    monkeypatch.setattr("sprout.cli._load_questions_for_cli", fake_load_questions_for_cli)
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["template", "--help"])
+
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--name NAME" in output
+    assert captured["template_src"] == "template"
+    assert captured["destination"] == (Path.cwd() / "__sprout_help_destination__").resolve()
+    assert cleanup_called["value"] is True
+
+
+def test_main_template_only_help_falls_back_to_base_help(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake_load_questions_for_cli(_template_src: str, _destination: Path) -> PreparedTemplate:
+        raise SystemExit("bad template questions")
+
+    monkeypatch.setattr("sprout.cli._load_questions_for_cli", fake_load_questions_for_cli)
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["template", "--help"])
+
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--force" in output
+    assert "sprout <template> <destination> --help" in output
+
+
+def test_main_destination_help_uses_real_destination(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    questions = [Question(key="name", prompt="Project name")]
+    captured: dict[str, object] = {}
+
+    def fake_load_questions_for_cli(template_src: str, destination: Path) -> PreparedTemplate:
+        captured["template_src"] = template_src
+        captured["destination"] = destination
+        return _prepared_template(questions)
+
+    monkeypatch.setattr("sprout.cli._load_questions_for_cli", fake_load_questions_for_cli)
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["template", "destination", "--help"])
+
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--name NAME" in output
+    assert captured["template_src"] == "template"
+    assert captured["destination"] == Path("destination").expanduser().resolve()
 
 
 def test_run_generate_handles_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
