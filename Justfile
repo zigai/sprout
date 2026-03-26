@@ -28,7 +28,7 @@ build: _require-uv
   uv build
 
 # setup or update local dev environment, keeps previously installed extras
-dev: _require-uv
+sync: _require-uv
   uv sync --inexact --extra dev
   uv run pre-commit install
 
