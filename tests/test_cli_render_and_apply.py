@@ -114,6 +114,7 @@ def test_invoke_apply_injects_arguments_and_normalises_result(tmp_path: Path) ->
     template_dir.mkdir()
     destination = tmp_path / "dest"
     destination.mkdir()
+
     answers = {"name": "demo"}
     style = Style()
 
@@ -121,6 +122,7 @@ def test_invoke_apply_injects_arguments_and_normalises_result(tmp_path: Path) ->
         assert env is environment
         assert destination.exists()
         assert answers["name"] == "demo"
+
         return "README.md"
 
     result = _invoke_apply(
@@ -275,6 +277,7 @@ def test_prepare_template_source_remote_success(
 
 def test_resolve_git_executable_and_url_normalisation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sprout.cli.shutil.which", lambda _name: None)
+
     with pytest.raises(SystemExit, match="git is required"):
         _resolve_git_executable()
 

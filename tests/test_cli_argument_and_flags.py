@@ -159,6 +159,7 @@ def test_main_passes_cli_answers_to_run_generate(monkeypatch: pytest.MonkeyPatch
         captured["force"] = force
         captured["initial_answers"] = dict(initial_answers or {})
         captured["prepared"] = prepared
+
         return 7
 
     monkeypatch.setattr("sprout.cli._run_generate", fake_run_generate)
@@ -189,6 +190,7 @@ def test_main_template_only_help_preloads_questions(
     def fake_load_questions_for_cli(template_src: str, destination: Path) -> PreparedTemplate:
         captured["template_src"] = template_src
         captured["destination"] = destination
+
         return prepared
 
     monkeypatch.setattr("sprout.cli._load_questions_for_cli", fake_load_questions_for_cli)
@@ -232,6 +234,7 @@ def test_main_destination_help_uses_real_destination(
     def fake_load_questions_for_cli(template_src: str, destination: Path) -> PreparedTemplate:
         captured["template_src"] = template_src
         captured["destination"] = destination
+
         return _prepared_template(questions)
 
     monkeypatch.setattr("sprout.cli._load_questions_for_cli", fake_load_questions_for_cli)

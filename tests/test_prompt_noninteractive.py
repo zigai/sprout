@@ -73,6 +73,7 @@ def test_apply_cli_answer_validates_single_choices() -> None:
     )
 
     assert _apply_cli_answer(question, "mit", {}) == "mit"
+
     with pytest.raises(ValueError, match="invalid choice"):
         _apply_cli_answer(question, "bsd", {})
 
@@ -87,6 +88,7 @@ def test_apply_cli_answer_validates_multiselect_choices() -> None:
     )
 
     assert _apply_cli_answer(question, ["tests", "lint"], {}) == ["tests", "lint"]
+
     with pytest.raises(ValueError, match="invalid choice\\(s\\)"):
         _apply_cli_answer(question, ["tests", "deploy"], {})
 

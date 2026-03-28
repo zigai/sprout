@@ -15,6 +15,7 @@ class MarkerExtension(Extension):
 
     def __init__(self, environment: Environment) -> None:
         super().__init__(environment)
+
         MarkerExtension.calls += 1
         environment.globals["marker"] = "ok"
 

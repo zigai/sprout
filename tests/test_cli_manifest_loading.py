@@ -39,10 +39,12 @@ def test_manifest_questions_rejects_invalid_types() -> None:
     module = ModuleType("manifest_module")
 
     module.questions = 123
+
     with pytest.raises(SystemExit, match="must be a sequence or a callable"):
         _manifest_questions(module)
 
     module.questions = "not-a-sequence-of-questions"
+
     with pytest.raises(SystemExit, match="must be a sequence or a callable"):
         _manifest_questions(module)
 
@@ -54,6 +56,7 @@ def test_manifest_questions_callable_signature_validation() -> None:
         return []
 
     module.questions = questions
+
     with pytest.raises(SystemExit, match="must accept exactly two positional"):
         _manifest_questions(module)
 
@@ -84,14 +87,17 @@ def test_manifest_style_must_be_style_instance() -> None:
 def test_manifest_extensions_validation() -> None:
     module = ModuleType("manifest_module")
     module.extensions = 5
+
     with pytest.raises(SystemExit, match="must be a sequence of Jinja2 extensions"):
         _manifest_extensions(module)
 
     module.extensions = "nope"
+
     with pytest.raises(SystemExit, match="must be a sequence of Jinja2 extensions"):
         _manifest_extensions(module)
 
     module.extensions = [object]
+
     with pytest.raises(SystemExit, match="must be a Jinja2 Extension subclass"):
         _manifest_extensions(module)
 
