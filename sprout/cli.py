@@ -103,11 +103,14 @@ def ensure_destination(path: Path, *, force: bool, style: Style | None = None) -
         SystemExit: If `path` points to a file or the user declines overwrite confirmation.
     """
     style = style or Style()
+
     if path.exists():
         if path.is_file():
             raise SystemExit(f"destination '{path}' is a file. Provide a directory path.")
+
         if any(path.iterdir()) and not force:
             console.print(Text(f"Destination '{path}' is not empty.", style="bold yellow"))
+
             if not _confirm_overwrite(path, style=style):
                 raise SystemExit("aborted by user.")
     else:
@@ -133,6 +136,7 @@ def _merge_ignore_patterns(ignore: Sequence[str] | None) -> list[str]:
     for pattern in ("*.pyc", "*.pyo", "*.pyd", "*.swp", "*~", ".DS_Store"):
         if pattern not in patterns:
             patterns.append(pattern)
+
     return patterns
 
 
@@ -155,6 +159,7 @@ def _resolve_target_relative(
         target_relative = Path(rendered)
     else:
         target_relative = relative
+
     return target_relative.with_suffix("") if source.suffix == ".jinja" else target_relative
 
 
@@ -169,7 +174,9 @@ def _render_source_file(
     if source.suffix == ".jinja":
         template = env.get_template(relative_str)
         target_path.write_text(template.render(**answers), encoding="utf-8")
+
         return
+
     shutil.copy2(source, target_path)
 
 
@@ -232,6 +239,7 @@ def summarize(created: Sequence[Path]) -> None:
         return
 
     console.print(Text("\nGenerated files", style="white"))
+
     for path in created:
         console.print(Text(f"  • {path}", style="white"))
 
@@ -240,6 +248,7 @@ def _resolve_actual_template_dir(root: Path, declared: str | Path | None) -> Pat
     if declared is None or (isinstance(declared, str) and declared.strip() == ""):
         return (root / "template").resolve()
     path = Path(declared)
+
     return path if path.is_absolute() else (root / path).resolve()
 
 
@@ -277,6 +286,7 @@ def run_template(
         SystemExit: If `template_dir` does not exist or destination checks fail.
     """
     style = style or Style()
+
     if banner:
         banner()
 
@@ -307,6 +317,7 @@ def run_template(
         summary(created)
     else:
         summarize(created)
+
     return answers, created
 
 
@@ -365,6 +376,7 @@ def execute_manifest(
             raise SystemExit(
                 f"Template directory not found. Expected {actual_template_dir} to exist."
             )
+
         created = render_templates(
             env,
             actual_template_dir,
@@ -382,6 +394,7 @@ def execute_manifest(
         console.print(Text("No files were generated.", style="yellow"))
     else:
         summarize(created_paths)
+
     return answers, created_paths
 
 
@@ -425,6 +438,7 @@ def _run_generate(
             manifest = prepared.manifest
         else:
             template_dir, cleanup, manifest = _resolve_template(args)
+
         execute_manifest(
             manifest,
             template_dir=template_dir,
@@ -438,6 +452,7 @@ def _run_generate(
     finally:
         if cleanup:
             cleanup()
+
     return 0
 
 
@@ -450,7 +465,9 @@ def _normalise_created(created: Sequence[Path | str], destination: Path) -> list
                 path = path.relative_to(destination)
             except ValueError:
                 pass
+
         results.append(path)
+
     return results
 
 
@@ -554,10 +571,12 @@ def _normalise_git_url(template_src: str) -> str:
     cleaned = template_src.strip()
     if cleaned.startswith(("http://", "https://", "git@", "ssh://")):
         return cleaned
+
     if cleaned.count("/") == 1 and " " not in cleaned:
         owner, repo = cleaned.split("/", maxsplit=1)
         repo_name = repo if repo.endswith(".git") else f"{repo}.git"
         return f"https://github.com/{owner}/{repo_name}"
+
     return cleaned
 
 
@@ -575,6 +594,7 @@ def _load_manifest_module(template_dir: Path, manifest_path: Path) -> ModuleType
         if template_path not in sys.path:
             sys.path.insert(0, template_path)
             added_to_path = True
+
         spec.loader.exec_module(module)
     finally:
         if added_to_path:
@@ -582,7 +602,9 @@ def _load_manifest_module(template_dir: Path, manifest_path: Path) -> ModuleType
                 sys.path.remove(template_path)
             except ValueError:
                 pass
+
         sys.modules.pop(module_name, None)
+
     return module
 
 
@@ -650,6 +672,7 @@ def _manifest_extensions(module: ModuleType) -> tuple[type[Extension], ...] | No
     extensions_obj: object | None = getattr(module, "extensions", None)
     if extensions_obj is None:
         return None
+
     if not isinstance(extensions_obj, Sequence) or isinstance(
         extensions_obj,
         (str, bytes, bytearray),
@@ -660,7 +683,9 @@ def _manifest_extensions(module: ModuleType) -> tuple[type[Extension], ...] | No
     for extension in extensions_obj:
         if not isinstance(extension, type) or not issubclass(extension, Extension):
             raise SystemExit("each entry in extensions must be a Jinja2 Extension subclass.")
+
         checked.append(extension)
+
     return tuple(checked)
 
 
@@ -713,12 +738,14 @@ def _manifest_skip(module: ModuleType) -> SkipPredicate | None:
     skip_obj: object | None = getattr(module, "should_skip_file", None)
     if skip_obj is None:
         return None
+
     if not callable(skip_obj):
         raise SystemExit(
             "should_skip_file in sprout.py must be a callable taking (relative_path: str, answers)."
         )
     skip_fn = cast(Callable[..., Any], skip_obj)
     _validate_skip_signature(skip_fn)
+
     return cast(SkipPredicate, skip_fn)
 
 
@@ -789,6 +816,7 @@ def _display_title(
 
     if result is None:
         return
+
     console.print(result)
 
 
@@ -802,8 +830,10 @@ def _sanitize_question_key(key: str) -> str:
     cleaned = re.sub(r"[^0-9a-zA-Z_]", "_", key)
     if not cleaned:
         cleaned = "question"
+
     if cleaned[0].isdigit():
         cleaned = f"q_{cleaned}"
+
     return cleaned
 
 
@@ -851,6 +881,7 @@ def _extract_template_destination(
         if not end_of_opts and arg_value == "--":
             end_of_opts = True
             i += 1
+
             continue
 
         if not end_of_opts and arg_value.startswith("-"):
@@ -858,6 +889,7 @@ def _extract_template_destination(
             continue
 
         positional.append(arg_value)
+
         i += 1
 
     template = positional[0] if positional else None
@@ -877,6 +909,7 @@ def _load_questions_for_cli(template_src: str, destination: Path) -> PreparedTem
     except (Exception, SystemExit):
         cleanup()
         raise
+
     return PreparedTemplate(
         template_src=template_src,
         template_dir=template_dir,
@@ -893,6 +926,7 @@ def _format_question_help(question: Question) -> str:
 
     if question.multiselect:
         description = f"{description} (multiple values allowed)"
+
     return description
 
 
@@ -900,6 +934,7 @@ def _flag_from_question_key(key: str) -> str:
     cleaned = key.strip().replace("_", "-")
     cleaned = re.sub(r"[^0-9a-zA-Z-]", "-", cleaned)
     cleaned = cleaned.strip("-")
+
     return cleaned.lower() or "question"
 
 
@@ -979,6 +1014,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     template_src, destination = _extract_template_destination(inspect_args)
     help_requested = _has_help_option(inspect_args)
+
     if template_src and destination is not None:
         prepared = _load_questions_for_cli(template_src, destination)
     elif template_src and help_requested:

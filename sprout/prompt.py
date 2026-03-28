@@ -57,6 +57,7 @@ def collect_answers(
                 answers[question.key] = _apply_cli_answer(question, raw_value, answers)
             except ValueError as error:
                 raise SystemExit(f"{question.key}: {error}") from error
+
             continue
 
         try:
@@ -68,6 +69,7 @@ def collect_answers(
             continue
 
         answers[question.key] = ask_question(question, answers, style)
+
     return answers
 
 
@@ -102,6 +104,7 @@ def ask_question(question: Question, answers: dict[str, Any], style: Style) -> o
         _run_validator(question, processed, answers, raw_selection)
         value_to_label = dict(choices)
         _print_choice_summary(question, selection, value_to_label, style)
+
         return processed
 
     inline_preview = ""
@@ -193,6 +196,7 @@ def _interactive_choice(
             _print_choice_summary(question, selection, value_to_label, style)
         except ValueError as error:
             _print_error(error, style)
+
             current_default = selection
         else:
             return processed
@@ -209,10 +213,12 @@ def _prompt_for_text(
             session: PromptSession[str] = PromptSession()
             has_default = default_value not in (None, "", [])
             prompt_kwargs: dict[str, Any] = {}
+
             if has_default:
                 default_str = str(default_value)
                 prompt_kwargs["placeholder"] = default_str
                 prompt_kwargs["key_bindings"] = _placeholder_key_bindings(default_str)
+
             response = session.prompt(f"{style.input_prefix} ", **prompt_kwargs)
         else:
             response = console.input(f"[bold green]{style.input_prefix} [/bold green]").strip()
@@ -305,6 +311,7 @@ def _prompt_toolkit_choice(
 
     def _render() -> list[tuple[str, str]]:
         fragments: list[tuple[str, str]] = []
+
         for idx, (value, label) in enumerate(items):
             caret = (
                 style.menu.caret_icon if idx == pointer_box[0] else " " * len(style.menu.caret_icon)
@@ -324,6 +331,7 @@ def _prompt_toolkit_choice(
             fragments.append((caret_style, caret))
             fragments.append((bullet_style, bullet))
             fragments.append((text_style, str(display)))
+
             if idx != len(items) - 1:
                 fragments.append(("", "\n"))
 
@@ -376,6 +384,7 @@ def _bind_choice_move_key(
             pointer_box[0] = item_count - 1
         else:
             pointer_box[0] = _position
+
         event.app.invalidate()
 
 
@@ -391,6 +400,7 @@ def _bind_choice_toggle_key(
             selected_box.remove(idx)
         else:
             selected_box.add(idx)
+
         event.app.invalidate()
 
 
@@ -408,6 +418,7 @@ def _bind_choice_confirm_key(
             result: str | list[str] = [items[idx][0] for idx in sorted(selected_box)]
         else:
             result = items[pointer_box[0]][0]
+
         event.app.exit(result=result)
 
 
@@ -428,12 +439,16 @@ def _choice_key_bindings(
     item_count = len(items)
     for key in ("up", "k", "left", "h"):
         _bind_choice_move_key(keybind, key, pointer_box, item_count, delta=-1)
+
     for key in ("down", "j", "right", "l"):
         _bind_choice_move_key(keybind, key, pointer_box, item_count, delta=1)
+
     _bind_choice_move_key(keybind, "home", pointer_box, item_count, position=0)
     _bind_choice_move_key(keybind, "end", pointer_box, item_count, position=-1)
+
     if multiselect:
         _bind_choice_toggle_key(keybind, pointer_box, selected_box)
+
     _bind_choice_confirm_key(
         keybind,
         pointer_box,
@@ -484,6 +499,7 @@ def _prompt_toolkit_inline_choice(
             fragments.append((bullet_style, bullet))
             fragments.append(("", " "))
             fragments.append((text_style, str(display)))
+
             if idx != len(items) - 1:
                 fragments.append(("", style.inline.separator))
 
@@ -582,6 +598,7 @@ def _fallback_choice(
                 return processed_list
 
             _print_choice_summary(question, candidate, mapping, style)
+
             return processed
 
 
@@ -632,6 +649,7 @@ def _fallback_lookup_maps(
     value_map = {value.lower(): value for value, _ in choices}
     label_map = {label.lower(): value for value, label in choices}
     index_map = {str(idx): value for idx, (value, _) in enumerate(choices, start=1)}
+
     return value_map, label_map, index_map
 
 
@@ -663,7 +681,9 @@ def _resolve_fallback_multiselect(
         if value is None:
             _print_error(f"Unknown choice '{token}'.", style)
             return None
+
         resolved.append(value)
+
     return resolved
 
 
@@ -679,15 +699,19 @@ def _resolve_fallback_choice(
     if not response:
         if question.multiselect:
             return list(default_list)
+
         if default_list:
             return default_list[0]
+
         _print_error("Please choose a value.", style)
+
         return None
 
     if question.multiselect:
         return _resolve_fallback_multiselect(response, value_map, label_map, index_map, style)
 
     resolved = _resolve_fallback_token(response, value_map, label_map, index_map)
+
     return resolved or response
 
 
@@ -712,6 +736,7 @@ def _print_choice_summary(
         text_value = str(value)
         summary = _choice_label(text_value, value_to_label.get(text_value, text_value))
         summary_style = style.summary.selected_style
+
     console.print(Text(f"{style.summary.prefix}{summary}", style=summary_style))
 
 
@@ -733,12 +758,15 @@ def _highlight_prompt_line(value: str, style: Style) -> None:
 def _populate_default_placeholder(buffer: Buffer, default_text: str) -> bool:
     if buffer.text:
         return False
+
     buffer.insert_text(default_text)
+
     return True
 
 
 def _placeholder_move_left(buffer: Buffer, default_text: str) -> None:
     _populate_default_placeholder(buffer, default_text)
+
     if buffer.cursor_position > 0:
         buffer.cursor_left(count=1)
 
@@ -751,22 +779,26 @@ def _placeholder_move_right(buffer: Buffer, default_text: str) -> None:
 
 def _placeholder_move_home(buffer: Buffer, default_text: str) -> None:
     _populate_default_placeholder(buffer, default_text)
+
     buffer.cursor_position = 0
 
 
 def _placeholder_move_end(buffer: Buffer, default_text: str) -> None:
     _populate_default_placeholder(buffer, default_text)
+
     buffer.cursor_position = len(buffer.text)
 
 
 def _placeholder_backspace(buffer: Buffer, default_text: str) -> None:
     _populate_default_placeholder(buffer, default_text)
+
     if buffer.text:
         buffer.delete_before_cursor(count=1)
 
 
 def _placeholder_delete(buffer: Buffer, default_text: str) -> None:
     _populate_default_placeholder(buffer, default_text)
+
     if buffer.text:
         buffer.delete(count=1)
 
@@ -797,16 +829,19 @@ def _placeholder_key_bindings(default_text: str) -> KeyBindings:
     _bind_placeholder_action(keybind, ("backspace", "c-h"), default_text, _placeholder_backspace)
     _bind_placeholder_action(keybind, ("delete", "c-d"), default_text, _placeholder_delete)
     _bind_interrupt_key(keybind)
+
     return keybind
 
 
 def _apply_cli_answer(question: Question, value: object, answers: dict[str, Any]) -> object:
     raw_value = value
+
     if question.multiselect:
         if isinstance(value, (list, tuple, set)):
             values = [str(item) for item in value]
         else:
             values = [str(value)]
+
         raw_value = ", ".join(values)
     else:
         values = [str(value)]
@@ -822,12 +857,14 @@ def _apply_cli_answer(question: Question, value: object, answers: dict[str, Any]
             raise ValueError(f"invalid choice: {values[0]}")
 
     processed: object
+
     if question.multiselect:
         processed = values
     else:
         processed = _apply_parser(question, value, answers, raw=str(value))
 
     _run_validator(question, processed, answers, raw=str(raw_value))
+
     return processed
 
 

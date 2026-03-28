@@ -35,8 +35,10 @@ def parse_yes_no(value: str, _answers: AnswerMap) -> bool:
     normalized = value.strip().lower()
     if normalized in {"yes", "y", "true", "1"}:
         return True
+
     if normalized in {"no", "n", "false", "0"}:
         return False
+
     raise ValueError("expected yes or no.")
 
 

@@ -16,6 +16,7 @@ class GitDefaultsExtension(Extension):
 
     def __init__(self, environment: Environment) -> None:
         super().__init__(environment)
+
         self._repo_config_path = self._find_repo_config_path(Path.cwd())
         self._config_paths = self._collect_git_config_paths(self._repo_config_path)
         environment.globals["git_user_name"] = self._get_git_config("user.name")
@@ -83,10 +84,12 @@ class GitDefaultsExtension(Extension):
 
         if not loaded_paths:
             return None
+
         return parser
 
     def _get_git_config(self, key: str) -> str:
         section, separator, option = key.partition(".")
+
         if not separator:
             return ""
 
@@ -97,6 +100,7 @@ class GitDefaultsExtension(Extension):
             value = parser.get(section, option, fallback="").strip()
             if value:
                 return value
+
         return ""
 
     def _get_github_username(self) -> str:
@@ -110,6 +114,7 @@ class GitDefaultsExtension(Extension):
                     match = re.search(r"github\.com[:/]([^/]+)", remote_url)
                     if match:
                         return match.group(1)
+
         return self._get_git_config("user.name")
 
 
@@ -118,6 +123,7 @@ class CurrentYearExtension(Extension):
 
     def __init__(self, environment: Environment) -> None:
         super().__init__(environment)
+
         environment.globals["current_year"] = dt.datetime.now(tz=dt.UTC).year
 
 
