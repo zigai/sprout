@@ -616,14 +616,14 @@ wheels = [
 
 [[package]]
 name = "rattle-blank-lines"
-version = "0.2.2"
+version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "rattle-lint" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/f0/fc392755139c9324268699b9da6cd21318c1be219a785018405f57c97ff7/rattle_blank_lines-0.2.2.tar.gz", hash = "sha256:1ad847c6911f6611ad13509ec3c54ea562bc8a250633d91ca936000fa77804a6", size = 57402, upload-time = "2026-03-28T21:21:25.829Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/ff/da6ba7952440bae189a885f4fb2a81a24640ccb4987e9d78a903af806199/rattle_blank_lines-0.2.3.tar.gz", hash = "sha256:0a9530142b0070f586ac899b0aa2abd3f4474dd83dd17381be10c7c8fcbe3e19", size = 59891, upload-time = "2026-03-29T12:28:30.43Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/72/4a/cb4f982da977d5eb954b8d67811d6dbc288fd7c18ec0d6c212ff88756b6a/rattle_blank_lines-0.2.2-py3-none-any.whl", hash = "sha256:18e1d4d87d11b4e6c8ec970ef6dbe597b0578d0a1b6184d2f1687d8c1216ba0e", size = 24738, upload-time = "2026-03-28T21:21:24.668Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/da/66e47d0b5ad02903115f4fac7fd8aa1e702640ff3dc52a13e7d8623b4913/rattle_blank_lines-0.2.3-py3-none-any.whl", hash = "sha256:532cb5ce035e5742c99cd6f33f748e7ccfc0e84332280c366f3591cafa08ad8d", size = 26309, upload-time = "2026-03-29T12:28:29.46Z" },
 ]
 
 [[package]]
@@ -749,7 +749,7 @@ wheels = [
 
 [[package]]
 name = "sprout"
-version = "0.1.4"
+version = "0.1.3"
 source = { editable = "." }
 dependencies = [
     { name = "interfacy" },
@@ -786,7 +786,7 @@ requires-dist = [
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.2" },
-    { name = "rattle-blank-lines", marker = "extra == 'dev'", specifier = ">=0.2.2" },
+    { name = "rattle-blank-lines", marker = "extra == 'dev'", specifier = ">=0.2.3" },
     { name = "rattle-lint", marker = "extra == 'dev'", specifier = ">=1.0.4" },
     { name = "rich", specifier = ">=13" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.8" },
