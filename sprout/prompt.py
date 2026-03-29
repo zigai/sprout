@@ -358,6 +358,7 @@ def _prompt_toolkit_choice(
     if result is None:
         if question.multiselect:
             return [items[idx][0] for idx in sorted(selected_indices)]
+
         return default_value
 
     return result
@@ -547,6 +548,7 @@ def _prompt_toolkit_inline_choice(
     result = app.run()
     if result is None:
         return default_value
+
     return result
 
 
@@ -607,6 +609,7 @@ def _fallback_default_values(question: Question, default_value: object) -> list[
         return [str(item) for item in default_value]
     if not question.multiselect and default_value not in (None, "", []):
         return [str(default_value)]
+
     return []
 
 
@@ -664,6 +667,7 @@ def _resolve_fallback_token(
         return index_map[token]
     if lower in value_map:
         return value_map[lower]
+
     return label_map.get(lower)
 
 
@@ -718,6 +722,7 @@ def _resolve_fallback_choice(
 def _as_choice_values(value: object) -> list[str]:
     if isinstance(value, (list, tuple, set)):
         return [str(item) for item in value]
+
     return [str(value)]
 
 
@@ -877,6 +882,7 @@ def _apply_parser(
     if question.parser and not question.multiselect:
         raw_value = raw if raw is not None else str(value)
         return question.parser(raw_value, answers)
+
     return value
 
 

@@ -45,6 +45,7 @@ class GitDefaultsExtension(Extension):
                 config_path = git_entry / "config"
                 if config_path.is_file():
                     return config_path
+
                 continue
 
             if not git_entry.is_file():
@@ -73,6 +74,7 @@ class GitDefaultsExtension(Extension):
         git_path = Path(gitdir)
         if git_path.is_absolute():
             return git_path
+
         return (git_file.parent / git_path).resolve()
 
     def _load_config(self, config_path: Path) -> configparser.ConfigParser | None:

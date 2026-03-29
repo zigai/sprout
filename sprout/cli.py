@@ -143,6 +143,7 @@ def _merge_ignore_patterns(ignore: Sequence[str] | None) -> list[str]:
 def _should_ignore_path(path: Path, ignore_patterns: Sequence[str]) -> bool:
     if "__pycache__" in path.parts:
         return True
+
     return any(fnmatch.fnmatch(path.name, pattern) for pattern in ignore_patterns)
 
 
@@ -484,6 +485,7 @@ def _resolve_questions(
     questions = list(resolved)
     if not all(isinstance(question, Question) for question in questions):
         raise SystemExit("each entry in questions must be a Question instance.")
+
     return questions
 
 
@@ -531,6 +533,7 @@ def _invoke_apply(
         return [result]
     if isinstance(result, Sequence):
         return list(result)
+
     raise SystemExit("apply() must return None, a path, or a sequence of paths.")
 
 
@@ -539,6 +542,7 @@ def _prepare_template_source(template_src: str) -> tuple[Path, Callable[[], None
     if candidate.exists():
         if not candidate.is_dir():
             raise SystemExit(f"template source {template_src} must be a directory.")
+
         return candidate.resolve(), lambda: None
 
     url = _normalise_git_url(template_src)
@@ -564,6 +568,7 @@ def _resolve_git_executable() -> str:
     git_executable = shutil.which("git")
     if git_executable is None:
         raise SystemExit("git is required to clone remote templates.")
+
     return git_executable
 
 
@@ -656,6 +661,7 @@ def _manifest_apply(module: ModuleType) -> Callable[..., Any] | None:
         return None
     if not callable(apply_obj):
         raise SystemExit("apply in sprout.py must be a callable if provided.")
+
     return cast(Callable[..., Any], apply_obj)
 
 
@@ -665,6 +671,7 @@ def _manifest_style(module: ModuleType) -> Style | None:
         return None
     if not isinstance(style_obj, Style):
         raise SystemExit("style in sprout.py must be an instance of sprout.style.Style.")
+
     return style_obj
 
 
@@ -697,6 +704,7 @@ def _manifest_title(module: ModuleType) -> str | Callable[..., Any] | None:
         return title_obj
     if callable(title_obj):
         return cast(Callable[..., Any], title_obj)
+
     raise SystemExit("title in sprout.py must be a string or a callable.")
 
 
@@ -706,6 +714,7 @@ def _manifest_template_dir(module: ModuleType) -> str | Path | None:
         return None
     if not isinstance(template_dir_obj, (str, Path)):
         raise SystemExit("template_dir in sprout.py must be a string or a Path.")
+
     return template_dir_obj
 
 
@@ -858,12 +867,14 @@ def _consume_optional_value(args: Sequence[str], index: int) -> int:
     next_arg = args[next_index]
     if next_arg == "--" or next_arg.startswith("-"):
         return index + 1
+
     return index + 2
 
 
 def _has_help_option(args: Sequence[str] | None) -> bool:
     if not args:
         return False
+
     return any(value in _HELP_OPTIONS for value in args)
 
 
@@ -896,6 +907,7 @@ def _extract_template_destination(
     destination = positional[1] if len(positional) > 1 else None
     if destination is None:
         return template, None
+
     return template, Path(destination).expanduser().resolve()
 
 
