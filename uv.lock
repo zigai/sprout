@@ -616,19 +616,19 @@ wheels = [
 
 [[package]]
 name = "rattle-blank-lines"
-version = "0.2.3"
+version = "0.2.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "rattle-lint" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/ff/da6ba7952440bae189a885f4fb2a81a24640ccb4987e9d78a903af806199/rattle_blank_lines-0.2.3.tar.gz", hash = "sha256:0a9530142b0070f586ac899b0aa2abd3f4474dd83dd17381be10c7c8fcbe3e19", size = 59891, upload-time = "2026-03-29T12:28:30.43Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/bf/de793e9efb63ee692f3e3931b48df992d99055778871cca5164aaef484d3/rattle_blank_lines-0.2.5.tar.gz", hash = "sha256:dd558e9a3ca1f3e7f5ccf61323948fb38ae180109ff03ad9688bd474df2369f7", size = 75810, upload-time = "2026-03-31T09:11:02.522Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/da/66e47d0b5ad02903115f4fac7fd8aa1e702640ff3dc52a13e7d8623b4913/rattle_blank_lines-0.2.3-py3-none-any.whl", hash = "sha256:532cb5ce035e5742c99cd6f33f748e7ccfc0e84332280c366f3591cafa08ad8d", size = 26309, upload-time = "2026-03-29T12:28:29.46Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/60/c4ee891d479baac324b898d8798ab016f335c2d3b09ef12fbfa97f1aefbf/rattle_blank_lines-0.2.5-py3-none-any.whl", hash = "sha256:fea1bd7922d4fea27a542c23b436d63abd0a11294df63a28cd34f546e5d4b433", size = 27480, upload-time = "2026-03-31T09:11:01.346Z" },
 ]
 
 [[package]]
 name = "rattle-lint"
-version = "1.0.4"
+version = "1.0.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -637,9 +637,9 @@ dependencies = [
     { name = "packaging" },
     { name = "trailrunner" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/85/70/4c9ce3178946ad1deb2cbd746c78d81aa8c435c99492bcc8cf44d4164117/rattle_lint-1.0.4.tar.gz", hash = "sha256:d1cbe89376fef1fc5a17bad74e6911d900c90025ff7a3bb086838889daebabcf", size = 171674, upload-time = "2026-03-28T21:15:13.926Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/97/dd8cdb5ba186075748bfe26d18b8ff38357775ad5e3ea1d8b25473c80300/rattle_lint-1.0.5.tar.gz", hash = "sha256:82de88acdd6c1e45be0bf4b570597f5ee6eddf0fae7026a8da8265bd7719b24f", size = 171439, upload-time = "2026-03-30T13:05:57.25Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cb/fb/2a91effd1d7c887e7003a0777522071a0e2e890326337ef73a7e6b731a36/rattle_lint-1.0.4-py3-none-any.whl", hash = "sha256:7c036bd762e8b58878be9e9fef9fa774ea1dedc52f02a9c46939a63cb603dc14", size = 104726, upload-time = "2026-03-28T21:15:12.989Z" },
+    { url = "https://files.pythonhosted.org/packages/40/58/f368cc4872cc4fb0d2a4885d4f442be5c3025dedb57283f84927bd6d6ef2/rattle_lint-1.0.5-py3-none-any.whl", hash = "sha256:01a0fdf8a069cc58b0c958811e951cae157b0a78fbec26ee6dd86aa864ef99aa", size = 104634, upload-time = "2026-03-30T13:05:56.049Z" },
 ]
 
 [[package]]
@@ -786,8 +786,8 @@ requires-dist = [
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.2" },
-    { name = "rattle-blank-lines", marker = "extra == 'dev'", specifier = ">=0.2.3" },
-    { name = "rattle-lint", marker = "extra == 'dev'", specifier = ">=1.0.4" },
+    { name = "rattle-blank-lines", marker = "extra == 'dev'", specifier = ">=0.2.4" },
+    { name = "rattle-lint", marker = "extra == 'dev'", specifier = ">=1.0.5" },
     { name = "rich", specifier = ">=13" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.8" },
 ]
