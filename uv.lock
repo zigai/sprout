@@ -177,7 +177,7 @@ wheels = [
 
 [[package]]
 name = "interfacy"
-version = "0.4.7"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "objinspect" },
@@ -186,9 +186,9 @@ dependencies = [
     { name = "strto" },
     { name = "tomlkit" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/3d/d555d9bc1d023c2cd3042a229b248d5dbcf564629b4c5eaec6ae20810cfe/interfacy-0.4.7.tar.gz", hash = "sha256:c69f8ee9db7d1636740c5a589e07497b7fbe3624ed9da1aece2af3160527b5de", size = 185607, upload-time = "2026-03-26T15:04:31.911Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/f2/3215d7e680fba7eddd07eb1d9a3b6ecf32593fe168932ee449cfa02df3e0/interfacy-0.5.0.tar.gz", hash = "sha256:41ba0085dac7834960d8068dc933bb7d46a678785c5df075cf822b80585c5404", size = 428613, upload-time = "2026-05-02T16:01:17.671Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/29/11734f216d1a1fdb5a31d96e89302e26e29af791fc559d0398d081ea82ee/interfacy-0.4.7-py3-none-any.whl", hash = "sha256:73b12e578387d99229b8014c27aa39f0c78f0d58a6651678a7e06e293709140a", size = 117352, upload-time = "2026-03-26T15:04:30.802Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/e5/62219f9d5bef6a187e084699fdb8e06a70fa51e08a3dca8a22494fed1fa2/interfacy-0.5.0-py3-none-any.whl", hash = "sha256:a9bc91982bfe9db316ac4b115ff8359fdaa85f3561570e0e3369470e22ab2c5e", size = 142241, upload-time = "2026-05-02T16:01:15.924Z" },
 ]
 
 [[package]]
@@ -431,16 +431,16 @@ wheels = [
 
 [[package]]
 name = "objinspect"
-version = "0.4.2"
+version = "0.4.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "stdl" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/da/64/21f287b7cbadcf61e85947554292e56d74e7877133b0e274f9faad27c222/objinspect-0.4.2.tar.gz", hash = "sha256:123c237ed6b89d0eec8cc8b394db071ff9fd5f2642558e3e95af0bcd630ae344", size = 54682, upload-time = "2026-02-24T18:05:02.78Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/16/d543a6e8523327bfbb80808b862c698520d21c639977625d18c48fbd33ea/objinspect-0.4.3.tar.gz", hash = "sha256:29bad637e1a4a035260c50f8fabd0390bab6346fd0c19fd07c73fdec816bbce9", size = 80456, upload-time = "2026-04-28T06:42:09.248Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/8b/03357f48dc88771a57c9ed5cd3a3b255d0c21c88be09039bd157b9475ee2/objinspect-0.4.2-py3-none-any.whl", hash = "sha256:83e1166952cec32ced045e3f1017b6e28e3e286891487357bf1121ca71b7b1bc", size = 19891, upload-time = "2026-02-24T18:05:01.204Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/f9/8cbc0e59248085d457e4a45f6b50e4712a4550d3c49582d173cb5c1d70bc/objinspect-0.4.3-py3-none-any.whl", hash = "sha256:d7286862665319d179f42584e76dce1c8aaf9268f20053c6590e47b848baf5b2", size = 20677, upload-time = "2026-04-28T06:42:08.011Z" },
 ]
 
 [[package]]
@@ -779,7 +779,7 @@ requires-dist = [
     { name = "codespell", marker = "extra == 'dev'", specifier = ">=2.4.2" },
     { name = "coverage", marker = "extra == 'dev'", specifier = ">=7.13.5" },
     { name = "coverage", marker = "extra == 'test'", specifier = ">=7.13.5" },
-    { name = "interfacy", specifier = ">=0.4.7" },
+    { name = "interfacy", specifier = ">=0.5.0" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1" },
@@ -795,29 +795,29 @@ provides-extras = ["test", "dev"]
 
 [[package]]
 name = "stdl"
-version = "0.7.0"
+version = "0.7.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "python-dateutil" },
     { name = "pyyaml" },
     { name = "toml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/57/60/c4304da6c517881f0977565eb894d8b2fee7ed58321b2fd4df1aef6ddf22/stdl-0.7.0.tar.gz", hash = "sha256:681a4ce8d162748238cf2323645de6e339e942a87e5da04ecb69bf8d2699f0b2", size = 94903, upload-time = "2026-02-23T16:06:03.5Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/46/444487ec664820e0571380957d819278f24011e1de7a319de1b2fb1167eb/stdl-0.7.1.tar.gz", hash = "sha256:2977a481e92dd2ac59e9ff03c0ad92eef950c524f6f7de465c534cdf3e2863e0", size = 135456, upload-time = "2026-04-27T10:29:42.287Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/ed/29895ec67f671324e632d8b76518609c5ecb19c96394f10ce9af1a34e9c4/stdl-0.7.0-py3-none-any.whl", hash = "sha256:45891fd7d581f3800206bf3f4031bdf7b323e40c366d2bd4118600c31830b2ed", size = 37211, upload-time = "2026-02-23T16:06:02.269Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/63/d627b06ecc5a32803c0fd882272275084acb4437b54b1da731f7c9647ce4/stdl-0.7.1-py3-none-any.whl", hash = "sha256:91085c73aa30377df0bd08ab0384456bec41fda21c210058dfc8ab8a9c15e2b0", size = 44517, upload-time = "2026-04-27T10:29:41.277Z" },
 ]
 
 [[package]]
 name = "strto"
-version = "0.2.7"
+version = "0.2.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "objinspect" },
     { name = "stdl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/4e/688fa874ac972587665f28def43aec66648c7ca1d0feaddaa52265642c62/strto-0.2.7.tar.gz", hash = "sha256:7ab5e632721350128ab0c50cd599de839694eabb4196af256ac7ea9f4f35aa4b", size = 74717, upload-time = "2026-02-25T12:06:50.298Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/6d/7e615938fdb28fc3b5f9fa8c72b0b5c7e0d498401c3fb2618dfbaa4edcbb/strto-0.2.9.tar.gz", hash = "sha256:5ee1da6028ceaa401cfd3804ae079c32272fa558e3e80f1a878c4bae3e600124", size = 84499, upload-time = "2026-04-28T06:44:40.521Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/1a/cc3e85c726d94b641d1a65cb143eca8c194507d5cd387ea9fbdd44870b72/strto-0.2.7-py3-none-any.whl", hash = "sha256:cf314a121ef0dc1c0f8ebb5cbd7665f67fdf62f0613cd7a0b7eb743d55b7cc9d", size = 15093, upload-time = "2026-02-25T12:06:48.574Z" },
+    { url = "https://files.pythonhosted.org/packages/55/bf/b082c4e92f4e772fae50dbe2505b47669f453539d820a61150fba6fade38/strto-0.2.9-py3-none-any.whl", hash = "sha256:c53bee5e04dcbb844f0c7dbb290d34fa3f551af973062907c62aa681703a188c", size = 15330, upload-time = "2026-04-28T06:44:39.67Z" },
 ]
 
 [[package]]
