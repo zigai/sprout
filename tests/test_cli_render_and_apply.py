@@ -108,6 +108,45 @@ def test_render_templates_supports_rendered_paths_and_skip(tmp_path: Path) -> No
     assert Path("demo.txt") in created
 
 
+def test_render_templates_rejects_parent_path_escape(tmp_path: Path) -> None:
+    template_dir = tmp_path / "template"
+    destination = tmp_path / "out"
+    template_dir.mkdir()
+    destination.mkdir()
+    (template_dir / "{{ name }}.txt.jinja").write_text("x\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="must stay within the destination directory"):
+        render_templates(
+            None,
+            template_dir,
+            destination,
+            {"name": "../escape"},
+            render_paths=True,
+        )
+
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_render_templates_rejects_absolute_rendered_path(tmp_path: Path) -> None:
+    template_dir = tmp_path / "template"
+    destination = tmp_path / "out"
+    absolute_name = tmp_path / "escape"
+    template_dir.mkdir()
+    destination.mkdir()
+    (template_dir / "{{ name }}.txt.jinja").write_text("x\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="must stay within the destination directory"):
+        render_templates(
+            None,
+            template_dir,
+            destination,
+            {"name": str(absolute_name)},
+            render_paths=True,
+        )
+
+    assert not absolute_name.with_suffix(".txt").exists()
+
+
 def test_invoke_apply_injects_arguments_and_normalises_result(tmp_path: Path) -> None:
     environment = Environment()
     template_dir = tmp_path / "template"
