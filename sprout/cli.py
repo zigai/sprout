@@ -161,7 +161,18 @@ def _resolve_target_relative(
     else:
         target_relative = relative
 
-    return target_relative.with_suffix("") if source.suffix == ".jinja" else target_relative
+    if source.suffix == ".jinja":
+        target_relative = target_relative.with_suffix("")
+
+    if target_relative == Path():
+        raise SystemExit(f"rendered path for '{relative.as_posix()}' must not be empty.")
+
+    if target_relative.is_absolute() or ".." in target_relative.parts:
+        raise SystemExit(
+            f"rendered path for '{relative.as_posix()}' must stay within the destination directory."
+        )
+
+    return target_relative
 
 
 def _render_source_file(
