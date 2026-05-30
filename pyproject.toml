@@ -7,7 +7,7 @@ license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "interfacy>=0.5.1",
+    "interfacy>=0.6.0",
     "jinja2>=3.0",
     "prompt-toolkit>=3.0.52",
     "rich>=13",
@@ -30,16 +30,16 @@ classifiers = [
 keywords = ["sprout"]
 
 [project.optional-dependencies]
-test = ["pytest>=9.0.2", "coverage>=7.13.5"]
+test = ["pytest>=9.0.3", "coverage>=7.14.1"]
 dev = [
-    "pytest>=9.0.2",
-    "coverage>=7.13.5",
-    "ruff==0.15.8",
-    "pre-commit>=4.5.1",
-    "mypy>=1.19.1",
+    "pytest>=9.0.3",
+    "coverage>=7.14.1",
+    "ruff==0.15.15",
+    "pre-commit>=4.6.0",
+    "pyrefly>=1.0.0",
     "codespell>=2.4.2",
-    "rattle-lint>=1.0.5",
-    "rattle-blank-lines>=0.2.4",
+    "rattle-lint>=1.1.1",
+    "rattle-blank-lines>=0.3.0",
 ]
 
 [project.urls]
@@ -81,21 +81,20 @@ exclude_lines = [
 ]
 omit = ["tests/*", "tests/**"]
 
-[tool.mypy]
-python_version = "3.12"
-files = ["sprout"]
-exclude = ["^tests/"]
-
-disallow_untyped_defs = true
-disallow_untyped_calls = true
-disallow_any_generics = true
-no_implicit_optional = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-warn_return_any = true
-warn_unused_configs = true
-strict_equality = true
-ignore_missing_imports = true
+[tool.pyrefly]
+project-includes = ["sprout"]
+project-excludes = ["tests/**"]
+disable-project-excludes-heuristics = true
+search-path = ["."]
+disable-search-path-heuristics = true
+python-version = "3.12"
+enabled-ignores = ["type", "pyrefly"]
+use-ignore-files = false
+check-unannotated-defs = true
+infer-return-types = "checked"
+infer-with-first-use = true
+strict-callable-subtyping = false
+spec-compliant-overloads = false
 
 [tool.codespell]
 skip = '.git,uv.lock'

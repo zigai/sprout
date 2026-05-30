@@ -40,12 +40,12 @@ coverage: _require-uv
 
 # clean build artifacts and caches
 clean:
-  rm -rf .venv .pytest_cache .mypy_cache .ruff_cache
+  rm -rf .venv .pytest_cache .pyrefly .ruff_cache
   find . -type d -name "__pycache__" -exec rm -r {} +
 
-# static type check with mypy
+# static type check with pyrefly
 typecheck: _require-uv
-    uv run mypy
+    uv run pyrefly check
 
 # check code for common misspellings
 spell: _require-uv
@@ -60,6 +60,6 @@ help:
 
 alias fmt := format
 alias cov := coverage
-alias mypy := typecheck
+alias pyrefly := typecheck
 
 alias dev := sync
