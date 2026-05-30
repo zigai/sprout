@@ -966,7 +966,7 @@ def _build_cli_parser(
     *,
     help_note: str | None = None,
 ) -> ArgumentParser:
-    layout = InterfacyLayout()
+    layout = InterfacyLayout(include_metavar_in_flag_display=True)
     description = "Generate a project from a sprout manifest."
     if help_note:
         description = f"{description}\n\n{help_note}"
