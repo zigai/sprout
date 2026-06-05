@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -180,14 +181,14 @@ def _interactive_choice(
         if supports_live_interaction():
             selection = _prompt_toolkit_choice(question, choices, current_default, style)
         else:
-            return _fallback_choice(
-                question,
-                answers,
-                current_default,
-                choices,
-                value_to_label,
-                style,
-            )
+            return FallbackChoicePrompt(
+                question=question,
+                answers=answers,
+                default_value=current_default,
+                choices=choices,
+                value_to_label=value_to_label,
+                style=style,
+            ).ask()
 
         processed = _apply_parser(question, selection, answers)
         raw_selection = selection if isinstance(selection, str) else str(selection)
@@ -342,12 +343,12 @@ def _prompt_toolkit_choice(
 
     app: Application[object] = Application(
         layout=Layout(HSplit([body])),
-        key_bindings=_choice_key_bindings(
-            pointer_box,
-            selected_box,
-            items,
+        key_bindings=ChoiceKeyBindings(
+            pointer_box=pointer_box,
+            selected_box=selected_box,
+            items=items,
             multiselect=question.multiselect,
-        ),
+        ).build(),
         mouse_support=False,
         full_screen=False,
         style=pt_style,
@@ -364,102 +365,87 @@ def _prompt_toolkit_choice(
     return result
 
 
-def _bind_choice_move_key(
-    keybind: KeyBindings,
-    key: str,
-    pointer_box: list[int],
-    item_count: int,
-    *,
-    delta: int | None = None,
-    position: int | None = None,
-) -> None:
-    @keybind.add(key)
-    def _move(
-        event: KeyPressEvent,
-        _delta: int | None = delta,
-        _position: int | None = position,
-    ) -> None:  # pragma: no cover - interactive
-        if _position is None:
-            pointer_box[0] = (pointer_box[0] + (_delta or 0)) % item_count
-        elif _position < 0:
-            pointer_box[0] = item_count - 1
-        else:
-            pointer_box[0] = _position
+@dataclass
+class ChoiceKeyBindings:
+    pointer_box: list[int]
+    selected_box: set[int]
+    items: Sequence[Choice]
+    multiselect: bool
+    keybind: KeyBindings = field(default_factory=KeyBindings, init=False)
 
-        event.app.invalidate()
+    def build(self) -> KeyBindings:
+        for key in ("up", "k", "left", "h"):
+            self._bind_move_key(key, delta=-1)
 
+        for key in ("down", "j", "right", "l"):
+            self._bind_move_key(key, delta=1)
 
-def _bind_choice_toggle_key(
-    keybind: KeyBindings,
-    pointer_box: list[int],
-    selected_box: set[int],
-) -> None:
-    @keybind.add(" ")
-    def _toggle(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
-        idx = pointer_box[0]
-        if idx in selected_box:
-            selected_box.remove(idx)
-        else:
-            selected_box.add(idx)
+        self._bind_move_key("home", position=0)
+        self._bind_move_key("end", position=-1)
 
-        event.app.invalidate()
+        if self.multiselect:
+            self._bind_toggle_key()
 
+        self._bind_confirm_key()
+        self._bind_interrupt_key()
 
-def _bind_choice_confirm_key(
-    keybind: KeyBindings,
-    pointer_box: list[int],
-    selected_box: set[int],
-    items: Sequence[Choice],
-    *,
-    multiselect: bool,
-) -> None:
-    @keybind.add("enter")
-    def _confirm(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
-        if multiselect:
-            result: str | list[str] = [items[idx][0] for idx in sorted(selected_box)]
-        else:
-            result = items[pointer_box[0]][0]
+        return self.keybind
 
-        event.app.exit(result=result)
+    def _bind_move_key(
+        self,
+        key: str,
+        *,
+        delta: int | None = None,
+        position: int | None = None,
+    ) -> None:
+        item_count = len(self.items)
+
+        @self.keybind.add(key)
+        def _move(
+            event: KeyPressEvent,
+            _delta: int | None = delta,
+            _position: int | None = position,
+        ) -> None:  # pragma: no cover - interactive
+            if _position is None:
+                self.pointer_box[0] = (self.pointer_box[0] + (_delta or 0)) % item_count
+            elif _position < 0:
+                self.pointer_box[0] = item_count - 1
+            else:
+                self.pointer_box[0] = _position
+
+            event.app.invalidate()
+
+    def _bind_toggle_key(self) -> None:
+        @self.keybind.add(" ")
+        def _toggle(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
+            idx = self.pointer_box[0]
+            if idx in self.selected_box:
+                self.selected_box.remove(idx)
+            else:
+                self.selected_box.add(idx)
+
+            event.app.invalidate()
+
+    def _bind_confirm_key(self) -> None:
+        @self.keybind.add("enter")
+        def _confirm(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
+            if self.multiselect:
+                result: str | list[str] = [self.items[idx][0] for idx in sorted(self.selected_box)]
+            else:
+                result = self.items[self.pointer_box[0]][0]
+
+            event.app.exit(result=result)
+
+    def _bind_interrupt_key(self) -> None:
+        @self.keybind.add("c-c")
+        def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
+            event.app.exit(exception=KeyboardInterrupt)
 
 
 def _bind_interrupt_key(keybind: KeyBindings) -> None:
     @keybind.add("c-c")
     def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
         event.app.exit(exception=KeyboardInterrupt)
-
-
-def _choice_key_bindings(
-    pointer_box: list[int],
-    selected_box: set[int],
-    items: Sequence[Choice],
-    *,
-    multiselect: bool,
-) -> KeyBindings:
-    keybind = KeyBindings()
-    item_count = len(items)
-    for key in ("up", "k", "left", "h"):
-        _bind_choice_move_key(keybind, key, pointer_box, item_count, delta=-1)
-
-    for key in ("down", "j", "right", "l"):
-        _bind_choice_move_key(keybind, key, pointer_box, item_count, delta=1)
-
-    _bind_choice_move_key(keybind, "home", pointer_box, item_count, position=0)
-    _bind_choice_move_key(keybind, "end", pointer_box, item_count, position=-1)
-
-    if multiselect:
-        _bind_choice_toggle_key(keybind, pointer_box, selected_box)
-
-    _bind_choice_confirm_key(
-        keybind,
-        pointer_box,
-        selected_box,
-        items,
-        multiselect=multiselect,
-    )
-    _bind_interrupt_key(keybind)
-
-    return keybind
 
 
 def _prompt_toolkit_inline_choice(
@@ -552,56 +538,81 @@ def _prompt_toolkit_inline_choice(
     return result
 
 
-def _fallback_choice(
-    question: Question,
-    answers: dict[str, Any],
-    default_value: object,
-    choices: Sequence[Choice] | None = None,
-    value_to_label: ChoiceLabelMap | None = None,
-    style: Style | None = None,
-) -> object:
-    style = style or Style()
-    choices = list(choices or [])
-    if not choices:
-        return default_value
-
-    mapping: ChoiceChoiceMap = dict(value_to_label) if value_to_label is not None else dict(choices)
-    default_list = _fallback_default_values(question, default_value)
-    _print_fallback_choices(question, choices, mapping, default_list, style)
-    value_map, label_map, index_map = _fallback_lookup_maps(choices)
-
-    while True:
-        response = console.input(f"[bold green]{style.input_prefix} [/bold green]").strip()
-        candidate = _resolve_fallback_choice(
-            question,
-            response,
-            default_list,
-            value_map,
-            label_map,
-            index_map,
-            style,
+class FallbackChoicePrompt:
+    def __init__(
+        self,
+        *,
+        question: Question,
+        answers: dict[str, Any],
+        default_value: object,
+        choices: Sequence[Choice],
+        value_to_label: ChoiceLabelMap | None = None,
+        style: Style | None = None,
+    ) -> None:
+        self.question = question
+        self.answers = answers
+        self.default_value = default_value
+        self.choices = list(choices)
+        self.style = style or Style()
+        self.mapping: ChoiceChoiceMap = (
+            dict(value_to_label) if value_to_label is not None else dict(self.choices)
         )
-        if candidate is None:
-            continue
+        self.default_list = _fallback_default_values(question, default_value)
+        self.value_map, self.label_map, self.index_map = _fallback_lookup_maps(self.choices)
 
-        raw_value = response or (
-            ", ".join(candidate) if isinstance(candidate, list) else str(candidate)
+    def ask(self) -> object:
+        if not self.choices:
+            return self.default_value
+
+        _print_fallback_choices(
+            self.question,
+            self.choices,
+            self.mapping,
+            self.default_list,
+            self.style,
         )
-        processed = _apply_parser(question, candidate, answers, raw=str(candidate))
 
-        try:
-            _run_validator(question, processed, answers, raw_value)
-        except ValueError as error:
-            _print_error(error, style)
-        else:
-            if question.multiselect:
-                processed_list = _as_choice_values(processed)
-                _print_choice_summary(question, processed_list, mapping, style)
-                return processed_list
+        while True:
+            response = console.input(f"[bold green]{self.style.input_prefix} [/bold green]").strip()
+            candidate = _resolve_fallback_choice(
+                self.question,
+                response,
+                self.default_list,
+                self.value_map,
+                self.label_map,
+                self.index_map,
+                self.style,
+            )
+            if candidate is None:
+                continue
 
-            _print_choice_summary(question, candidate, mapping, style)
+            processed = _apply_parser(self.question, candidate, self.answers, raw=str(candidate))
+            raw_value = self._raw_value(response, candidate)
 
-            return processed
+            try:
+                _run_validator(self.question, processed, self.answers, raw_value)
+            except ValueError as error:
+                _print_error(error, self.style)
+            else:
+                return self._summarize_and_return(candidate, processed)
+
+    def _raw_value(self, response: str, candidate: str | list[str]) -> str:
+        if response:
+            return response
+        if isinstance(candidate, list):
+            return ", ".join(candidate)
+
+        return str(candidate)
+
+    def _summarize_and_return(self, candidate: str | list[str], processed: object) -> object:
+        if self.question.multiselect:
+            processed_list = _as_choice_values(processed)
+            _print_choice_summary(self.question, processed_list, self.mapping, self.style)
+            return processed_list
+
+        _print_choice_summary(self.question, candidate, self.mapping, self.style)
+
+        return processed
 
 
 def _fallback_default_values(question: Question, default_value: object) -> list[str]:

@@ -147,49 +147,75 @@ def _should_ignore_path(path: Path, ignore_patterns: Sequence[str]) -> bool:
     return any(fnmatch.fnmatch(path.name, pattern) for pattern in ignore_patterns)
 
 
-def _resolve_target_relative(
-    source: Path,
-    relative: Path,
-    *,
-    env: Environment,
-    answers: dict[str, Any],
-    render_paths: bool,
-) -> Path:
-    if render_paths:
-        rendered = env.from_string(relative.as_posix()).render(**answers)
-        target_relative = Path(rendered)
-    else:
-        target_relative = relative
+class TemplateRenderer:
+    """Render files from one template directory into one destination."""
 
-    if source.suffix == ".jinja":
-        target_relative = target_relative.with_suffix("")
+    def __init__(
+        self,
+        *,
+        env: Environment,
+        template_dir: Path,
+        destination: Path,
+        answers: dict[str, Any],
+        skip: SkipPredicate | None = None,
+        render_paths: bool = False,
+        ignore: Sequence[str] | None = None,
+    ) -> None:
+        self.env = env
+        self.template_dir = template_dir
+        self.destination = destination
+        self.answers = answers
+        self.skip = skip
+        self.render_paths = render_paths
+        self.ignore_patterns = _merge_ignore_patterns(ignore)
 
-    if target_relative == Path():
-        raise SystemExit(f"rendered path for '{relative.as_posix()}' must not be empty.")
+    def render(self) -> list[Path]:
+        created: list[Path] = []
+        for source in sorted(self.template_dir.rglob("*")):
+            if source.is_dir() or _should_ignore_path(source, self.ignore_patterns):
+                continue
 
-    if target_relative.is_absolute() or ".." in target_relative.parts:
-        raise SystemExit(
-            f"rendered path for '{relative.as_posix()}' must stay within the destination directory."
-        )
+            relative = source.relative_to(self.template_dir)
+            relative_str = relative.as_posix()
+            if self.skip and self.skip(relative_str, self.answers):
+                continue
 
-    return target_relative
+            target_relative = self._resolve_target_relative(source, relative)
+            self._render_source_file(source, target_relative, relative_str)
+            created.append(target_relative)
 
+        return created
 
-def _render_source_file(
-    source: Path,
-    target_path: Path,
-    relative_str: str,
-    *,
-    env: Environment,
-    answers: dict[str, Any],
-) -> None:
-    if source.suffix == ".jinja":
-        template = env.get_template(relative_str)
-        target_path.write_text(template.render(**answers), encoding="utf-8")
+    def _resolve_target_relative(self, source: Path, relative: Path) -> Path:
+        if self.render_paths:
+            rendered = self.env.from_string(relative.as_posix()).render(**self.answers)
+            target_relative = Path(rendered)
+        else:
+            target_relative = relative
 
-        return
+        if source.suffix == ".jinja":
+            target_relative = target_relative.with_suffix("")
 
-    shutil.copy2(source, target_path)
+        if target_relative == Path():
+            raise SystemExit(f"rendered path for '{relative.as_posix()}' must not be empty.")
+
+        if target_relative.is_absolute() or ".." in target_relative.parts:
+            raise SystemExit(
+                f"rendered path for '{relative.as_posix()}' must stay within the destination directory."
+            )
+
+        return target_relative
+
+    def _render_source_file(self, source: Path, target_relative: Path, relative_str: str) -> None:
+        target_path = self.destination / target_relative
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if source.suffix == ".jinja":
+            template = self.env.get_template(relative_str)
+            target_path.write_text(template.render(**self.answers), encoding="utf-8")
+
+            return
+
+        shutil.copy2(source, target_path)
 
 
 def render_templates(
@@ -210,34 +236,20 @@ def render_templates(
       ``answers`` (useful for names like ``"{{ package_name }}"``).
     - ``ignore`` is a list of glob patterns (matched against file name) and special names to skip.
     """
-    created: list[Path] = []
-    ignore_patterns = _merge_ignore_patterns(ignore)
-
     if env is None:
         env = build_environment(template_dir, extensions=extensions or ())
 
-    for source in sorted(template_dir.rglob("*")):
-        if source.is_dir() or _should_ignore_path(source, ignore_patterns):
-            continue
+    renderer = TemplateRenderer(
+        env=env,
+        template_dir=template_dir,
+        destination=destination,
+        answers=answers,
+        skip=skip,
+        render_paths=render_paths,
+        ignore=ignore,
+    )
 
-        relative = source.relative_to(template_dir)
-        relative_str = relative.as_posix()
-        if skip and skip(relative_str, answers):
-            continue
-
-        target_relative = _resolve_target_relative(
-            source,
-            relative,
-            env=env,
-            answers=answers,
-            render_paths=render_paths,
-        )
-        target_path = destination / target_relative
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        _render_source_file(source, target_path, relative_str, env=env, answers=answers)
-        created.append(target_relative)
-
-    return created
+    return renderer.render()
 
 
 def summarize(created: Sequence[Path]) -> None:
