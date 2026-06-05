@@ -5,10 +5,10 @@ from collections.abc import Iterator
 import pytest
 
 from sprout.prompt import (
+    FallbackChoicePrompt,
     _apply_cli_answer,
     _apply_parser,
     _as_choice_values,
-    _fallback_choice,
     _fallback_default_values,
     _fallback_lookup_maps,
     _prompt_for_text,
@@ -185,13 +185,13 @@ def test_fallback_choice_multiselect_retries_on_unknown(
     )
 
     question = Question(key="workflows", prompt="Workflows", multiselect=True)
-    result = _fallback_choice(
-        question,
-        {},
-        [],
+    result = FallbackChoicePrompt(
+        question=question,
+        answers={},
+        default_value=[],
         choices=[("tests", "Tests"), ("lint", "Lint")],
         style=Style(),
-    )
+    ).ask()
 
     assert result == ["tests", "lint"]
     assert any("Unknown choice" in error for error in errors)
