@@ -7,7 +7,7 @@ license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "interfacy>=0.6.0",
+    "interfacy>=0.6.1",
     "jinja2>=3.0",
     "prompt-toolkit>=3.0.52",
     "rich>=13",
@@ -34,12 +34,11 @@ test = ["pytest>=9.0.3", "coverage>=7.14.1"]
 dev = [
     "pytest>=9.0.3",
     "coverage>=7.14.1",
-    "ruff==0.15.15",
+    "ruff==0.15.16",
     "pre-commit>=4.6.0",
     "pyrefly>=1.0.0",
     "codespell>=2.4.2",
-    "rattle-lint>=1.1.1",
-    "rattle-blank-lines>=0.3.0",
+    "rattle-lint>=2.1.1",
 ]
 
 [project.urls]
@@ -101,7 +100,7 @@ skip = '.git,uv.lock'
 
 [tool.rattle]
 root = true
-enable = ["rattle_blank_lines.rules"]
+enable = ["blank-lines"]
 disable = ["rattle.rules"]
 
 [tool.ruff]
