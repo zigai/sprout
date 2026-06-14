@@ -7,7 +7,7 @@ license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "interfacy>=0.6.1",
+    "interfacy>=0.6.6",
     "jinja2>=3.0",
     "prompt-toolkit>=3.0.52",
     "rich>=13",
@@ -38,7 +38,7 @@ dev = [
     "pre-commit>=4.6.0",
     "pyrefly>=1.0.0",
     "codespell>=2.4.2",
-    "rattle-lint>=2.1.1",
+    "rattle-lint>=2.5.1",
 ]
 
 [project.urls]
@@ -100,8 +100,32 @@ skip = '.git,uv.lock'
 
 [tool.rattle]
 root = true
-enable = ["blank-lines"]
-disable = ["rattle.rules"]
+enable = [
+    "blank-line-after-control-block",
+    "blank-line-after-terminal-control-block",
+    "blank-line-before-branch",
+    "blank-line-before-unrelated-block",
+    "no-suite-leading-trailing-blank-lines",
+    "module-all-at-bottom",
+    "no-underscore-all-exports",
+    "forbidden-call",
+    "no-relative-imports",
+    "no-underscore-import-aliases",
+    "no-unsafe-tempfile-factories",
+    "no-annotated-self",
+    "no-exception-message-variables",
+    "no-str-exception-translation",
+    "no-underscore-class",
+    "public-method-order",
+    "no-bare-object-annotations",
+    "no-named-tuple",
+    "no-static-if-condition",
+    "sorted-attributes",
+    "use-callable-ellipsis",
+]
+
+[tool.rattle.options."forbidden-call"]
+forbidden_calls = ["typing.cast"]
 
 [tool.ruff]
 line-length = 100

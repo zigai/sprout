@@ -177,7 +177,7 @@ wheels = [
 
 [[package]]
 name = "interfacy"
-version = "0.6.1"
+version = "0.6.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "objinspect" },
@@ -186,9 +186,9 @@ dependencies = [
     { name = "strto" },
     { name = "tomlkit" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/fd/d2e5e57ccd0d7fe5fd4d3b77e2c86d396e1f305229292c787be7a1919ead/interfacy-0.6.1.tar.gz", hash = "sha256:d79d5c41ee45cbddac6c9fac67010547ea480ebb49d1ca774644f350124b9024", size = 454731, upload-time = "2026-06-05T09:40:00.643Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/ee/ed76c883c175af4c8cd0e0ec6769528bebf71d4a2184e5902f9ab463922c/interfacy-0.6.6.tar.gz", hash = "sha256:8445349f29ea21b969c796e69177a21cbe85fc65eb8d966276987ce68b82ac2e", size = 464835, upload-time = "2026-06-14T20:08:01.088Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/43/cf0d33017a68899a107bf00e0778803692fe034c666f2d71c4575f55efe1/interfacy-0.6.1-py3-none-any.whl", hash = "sha256:cdf4cdececfd2354bdc59c6ec4f9338166e6094d7aa73df53b6ca9c62187821a", size = 164606, upload-time = "2026-06-05T09:39:59.456Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/63/a898bd066c70202952f3b13d6f52c9344a1cea021720cd13a0f24f2f0b2a/interfacy-0.6.6-py3-none-any.whl", hash = "sha256:1f761b914af09185842f0e9e00e004c7da11d3ce423879a978c8c8a4b3c451a8", size = 171756, upload-time = "2026-06-14T20:07:59.551Z" },
 ]
 
 [[package]]
@@ -539,7 +539,7 @@ wheels = [
 
 [[package]]
 name = "rattle-lint"
-version = "2.1.1"
+version = "2.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "interfacy" },
@@ -549,9 +549,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "trailrunner" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f6/89/2955ee4965473d98ba6a4c2644af86b3871372540ae35f8de2f47fb02955/rattle_lint-2.1.1.tar.gz", hash = "sha256:eb32f60e919ece2dd4d66a69febb935c477a4862254a324d902f5987be253b19", size = 255980, upload-time = "2026-06-05T14:50:03.956Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/62/17abaf5af7bc6305ff5551a35b3b8d048217b09c155a9c935e555b0f0a0a/rattle_lint-2.5.1.tar.gz", hash = "sha256:e92a56c45acae232f855e9e16e24f5f2019626b259d8ae6f90bcbbd104fb5039", size = 293692, upload-time = "2026-06-14T17:54:20.924Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/48/8e/c51b132b965b3da5ea9b57c7e3d556756eeb3ece42d64d3f36f410dbc947/rattle_lint-2.1.1-py3-none-any.whl", hash = "sha256:09a1747bf1dab911e7e5c6fa489214729e92d0849366a115a111bb20e71f5a66", size = 170606, upload-time = "2026-06-05T14:50:02.793Z" },
+    { url = "https://files.pythonhosted.org/packages/28/84/c96579714190134a9bd042a18c56c97436b9069010c6508c6f9659ce544c/rattle_lint-2.5.1-py3-none-any.whl", hash = "sha256:c3233948a8dd5d30dc11a73389c4bf9013fec3585428f47fedac1fb21e6b43f6", size = 213613, upload-time = "2026-06-14T17:54:19.646Z" },
 ]
 
 [[package]]
@@ -690,14 +690,14 @@ requires-dist = [
     { name = "codespell", marker = "extra == 'dev'", specifier = ">=2.4.2" },
     { name = "coverage", marker = "extra == 'dev'", specifier = ">=7.14.1" },
     { name = "coverage", marker = "extra == 'test'", specifier = ">=7.14.1" },
-    { name = "interfacy", specifier = ">=0.6.1" },
+    { name = "interfacy", specifier = ">=0.6.6" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pyrefly", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.3" },
-    { name = "rattle-lint", marker = "extra == 'dev'", specifier = ">=2.1.1" },
+    { name = "rattle-lint", marker = "extra == 'dev'", specifier = ">=2.5.1" },
     { name = "rich", specifier = ">=13" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.16" },
 ]
