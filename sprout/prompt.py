@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeGuard
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application
@@ -16,8 +17,9 @@ from rich.console import Console
 from rich.control import Control, ControlType
 from rich.text import Text
 
-from sprout.question import Question
+from sprout.question import AnswerMap, DefaultValue, Question
 from sprout.style import Style
+from sprout.validators import ContextValidatorFn, ValidatorType
 
 if TYPE_CHECKING:
     from prompt_toolkit.buffer import Buffer
@@ -34,22 +36,22 @@ def collect_answers(
     questions: Sequence[Question],
     *,
     style: Style | None = None,
-    initial_answers: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    initial_answers: dict[str, DefaultValue] | None = None,
+) -> dict[str, DefaultValue]:
     """
     Collect answers for each question in order and return the resulting mapping.
 
     Args:
         questions (Sequence[Question]): Questions to evaluate and optionally prompt for.
         style (Style | None): Optional style overrides used for interactive prompting.
-        initial_answers (dict[str, Any] | None): Optional CLI-provided answers keyed by question
+        initial_answers (dict[str, DefaultValue] | None): Optional CLI-provided answers keyed by question
             key. Non-None values bypass interactive prompts.
 
     Raises:
         SystemExit: If a CLI-provided answer is invalid or a `when` condition fails validation.
     """
     style = style or Style()
-    answers: dict[str, Any] = {}
+    answers: dict[str, DefaultValue] = {}
     provided = dict(initial_answers or {})
     for question in questions:
         if question.key in provided and provided[question.key] is not None:
@@ -74,13 +76,15 @@ def collect_answers(
     return answers
 
 
-def ask_question(question: Question, answers: dict[str, Any], style: Style) -> object:
+def ask_question(
+    question: Question, answers: dict[str, DefaultValue], style: Style
+) -> DefaultValue:
     """
     Prompt for one question and return the parsed answer value.
 
     Args:
         question (Question): Question definition including parsing and validation rules.
-        answers (dict[str, Any]): Previously collected answers used for dynamic behavior.
+        answers (dict[str, DefaultValue]): Previously collected answers used for dynamic behavior.
         style (Style): Prompt rendering configuration.
 
     Raises:
@@ -165,11 +169,11 @@ def confirm_overwrite(path: Path, *, style: Style) -> bool:
 
 def _interactive_choice(
     question: Question,
-    answers: dict[str, Any],
-    default_value: object,
+    answers: dict[str, DefaultValue],
+    default_value: DefaultValue,
     style: Style,
     choices: Sequence[Choice],
-) -> object:
+) -> DefaultValue:
     choices = list(choices or [])
     if not choices:
         return default_value
@@ -205,22 +209,24 @@ def _interactive_choice(
 
 def _prompt_for_text(
     question: Question,
-    default_value: object,
-    answers: dict[str, Any],
+    default_value: DefaultValue,
+    answers: dict[str, DefaultValue],
     style: Style,
-) -> object:
+) -> DefaultValue:
     while True:
         if supports_live_interaction():
             session: PromptSession[str] = PromptSession()
             has_default = default_value not in (None, "", [])
-            prompt_kwargs: dict[str, Any] = {}
 
             if has_default:
                 default_str = str(default_value)
-                prompt_kwargs["placeholder"] = default_str
-                prompt_kwargs["key_bindings"] = _placeholder_key_bindings(default_str)
-
-            response = session.prompt(f"{style.input_prefix} ", **prompt_kwargs)
+                response = session.prompt(
+                    f"{style.input_prefix} ",
+                    placeholder=default_str,
+                    key_bindings=_placeholder_key_bindings(default_str),
+                )
+            else:
+                response = session.prompt(f"{style.input_prefix} ")
         else:
             response = console.input(f"[bold green]{style.input_prefix} [/bold green]").strip()
 
@@ -231,7 +237,7 @@ def _prompt_for_text(
                 _print_error("Please provide a value.", style)
                 continue
 
-            candidate: object = default_value
+            candidate: DefaultValue = default_value
             parser_input = str(default_value)
         else:
             candidate = stripped
@@ -253,7 +259,7 @@ def _prompt_for_text(
 
 
 def _format_inline_preview(
-    default_value: object,
+    default_value: DefaultValue,
     style: Style,
     choices: Sequence[Choice],
 ) -> str:
@@ -273,9 +279,9 @@ def _format_inline_preview(
 def _prompt_toolkit_choice(
     question: Question,
     choices: Sequence[Choice],
-    default_value: object,
+    default_value: DefaultValue,
     style: Style,
-) -> object:
+) -> DefaultValue:
     items = list(choices)
     if not items:
         return default_value
@@ -451,9 +457,9 @@ def _bind_interrupt_key(keybind: KeyBindings) -> None:
 def _prompt_toolkit_inline_choice(
     question: Question,
     choices: Sequence[Choice],
-    default_value: object,
+    default_value: DefaultValue,
     style: Style,
-) -> object:
+) -> DefaultValue:
     items = list(choices)
     value_to_index = {value: idx for idx, (value, _) in enumerate(items)}
     pointer = value_to_index.get(default_value, 0) if isinstance(default_value, str) else 0
@@ -485,7 +491,7 @@ def _prompt_toolkit_inline_choice(
 
             fragments.append((bullet_style, bullet))
             fragments.append(("", " "))
-            fragments.append((text_style, str(display)))
+            fragments.append((text_style, display))
 
             if idx != len(items) - 1:
                 fragments.append(("", style.inline.separator))
@@ -543,8 +549,8 @@ class FallbackChoicePrompt:
         self,
         *,
         question: Question,
-        answers: dict[str, Any],
-        default_value: object,
+        answers: dict[str, DefaultValue],
+        default_value: DefaultValue,
         choices: Sequence[Choice],
         value_to_label: ChoiceLabelMap | None = None,
         style: Style | None = None,
@@ -560,7 +566,7 @@ class FallbackChoicePrompt:
         self.default_list = _fallback_default_values(question, default_value)
         self.value_map, self.label_map, self.index_map = _fallback_lookup_maps(self.choices)
 
-    def ask(self) -> object:
+    def ask(self) -> DefaultValue:
         if not self.choices:
             return self.default_value
 
@@ -574,15 +580,7 @@ class FallbackChoicePrompt:
 
         while True:
             response = console.input(f"[bold green]{self.style.input_prefix} [/bold green]").strip()
-            candidate = _resolve_fallback_choice(
-                self.question,
-                response,
-                self.default_list,
-                self.value_map,
-                self.label_map,
-                self.index_map,
-                self.style,
-            )
+            candidate = self.resolve_choice(response)
             if candidate is None:
                 continue
 
@@ -596,15 +594,36 @@ class FallbackChoicePrompt:
             else:
                 return self._summarize_and_return(candidate, processed)
 
+    def resolve_choice(self, response: str) -> str | list[str] | None:
+        if not response:
+            if self.question.multiselect:
+                return list(self.default_list)
+
+            if self.default_list:
+                return self.default_list[0]
+
+            _print_error("Please choose a value.", self.style)
+
+            return None
+
+        if self.question.multiselect:
+            return self._resolve_multiselect(response)
+
+        resolved = self._resolve_token(response)
+
+        return resolved or response
+
     def _raw_value(self, response: str, candidate: str | list[str]) -> str:
         if response:
             return response
         if isinstance(candidate, list):
             return ", ".join(candidate)
 
-        return str(candidate)
+        return candidate
 
-    def _summarize_and_return(self, candidate: str | list[str], processed: object) -> object:
+    def _summarize_and_return(
+        self, candidate: str | list[str], processed: DefaultValue
+    ) -> DefaultValue:
         if self.question.multiselect:
             processed_list = _as_choice_values(processed)
             _print_choice_summary(self.question, processed_list, self.mapping, self.style)
@@ -614,8 +633,30 @@ class FallbackChoicePrompt:
 
         return processed
 
+    def _resolve_multiselect(self, response: str) -> list[str] | None:
+        tokens = [token.strip() for token in response.split(",") if token.strip()]
+        resolved: list[str] = []
+        for token in tokens:
+            value = self._resolve_token(token)
+            if value is None:
+                _print_error(f"Unknown choice '{token}'.", self.style)
+                return None
 
-def _fallback_default_values(question: Question, default_value: object) -> list[str]:
+            resolved.append(value)
+
+        return resolved
+
+    def _resolve_token(self, token: str) -> str | None:
+        lower = token.lower()
+        if token in self.index_map:
+            return self.index_map[token]
+        if lower in self.value_map:
+            return self.value_map[lower]
+
+        return self.label_map.get(lower)
+
+
+def _fallback_default_values(question: Question, default_value: DefaultValue) -> list[str]:
     if question.multiselect and isinstance(default_value, (list, tuple, set)):
         return [str(item) for item in default_value]
     if not question.multiselect and default_value not in (None, "", []):
@@ -667,70 +708,7 @@ def _fallback_lookup_maps(
     return value_map, label_map, index_map
 
 
-def _resolve_fallback_token(
-    token: str,
-    value_map: Mapping[str, str],
-    label_map: Mapping[str, str],
-    index_map: Mapping[str, str],
-) -> str | None:
-    lower = token.lower()
-    if token in index_map:
-        return index_map[token]
-    if lower in value_map:
-        return value_map[lower]
-
-    return label_map.get(lower)
-
-
-def _resolve_fallback_multiselect(
-    response: str,
-    value_map: Mapping[str, str],
-    label_map: Mapping[str, str],
-    index_map: Mapping[str, str],
-    style: Style,
-) -> list[str] | None:
-    tokens = [token.strip() for token in response.split(",") if token.strip()]
-    resolved: list[str] = []
-    for token in tokens:
-        value = _resolve_fallback_token(token, value_map, label_map, index_map)
-        if value is None:
-            _print_error(f"Unknown choice '{token}'.", style)
-            return None
-
-        resolved.append(value)
-
-    return resolved
-
-
-def _resolve_fallback_choice(
-    question: Question,
-    response: str,
-    default_list: Sequence[str],
-    value_map: Mapping[str, str],
-    label_map: Mapping[str, str],
-    index_map: Mapping[str, str],
-    style: Style,
-) -> str | list[str] | None:
-    if not response:
-        if question.multiselect:
-            return list(default_list)
-
-        if default_list:
-            return default_list[0]
-
-        _print_error("Please choose a value.", style)
-
-        return None
-
-    if question.multiselect:
-        return _resolve_fallback_multiselect(response, value_map, label_map, index_map, style)
-
-    resolved = _resolve_fallback_token(response, value_map, label_map, index_map)
-
-    return resolved or response
-
-
-def _as_choice_values(value: object) -> list[str]:
+def _as_choice_values(value: DefaultValue) -> list[str]:
     if isinstance(value, (list, tuple, set)):
         return [str(item) for item in value]
 
@@ -739,7 +717,7 @@ def _as_choice_values(value: object) -> list[str]:
 
 def _print_choice_summary(
     question: Question,
-    value: object,
+    value: DefaultValue,
     value_to_label: ChoiceLabelMap,
     style: Style,
 ) -> None:
@@ -756,7 +734,7 @@ def _print_choice_summary(
     console.print(Text(f"{style.summary.prefix}{summary}", style=summary_style))
 
 
-def _print_text_summary(value: object, style: Style) -> None:
+def _print_text_summary(value: str, style: Style) -> None:
     console.print(Text(f"{style.summary.prefix}{value}", style=style.summary.selected_style))
 
 
@@ -771,85 +749,85 @@ def _highlight_prompt_line(value: str, style: Style) -> None:
     console.print(styled)
 
 
-def _populate_default_placeholder(buffer: Buffer, default_text: str) -> bool:
-    if buffer.text:
-        return False
+@dataclass
+class DefaultPlaceholderBindings:
+    default_text: str
+    keybind: KeyBindings = field(default_factory=KeyBindings, init=False)
 
-    buffer.insert_text(default_text)
+    def build(self) -> KeyBindings:
+        self._bind_action(("left",), self._move_left)
+        self._bind_action(("right",), self._move_right)
+        self._bind_action(("home",), self._move_home)
+        self._bind_action(("end",), self._move_end)
+        self._bind_action(("backspace", "c-h"), self._backspace)
+        self._bind_action(("delete", "c-d"), self._delete)
+        _bind_interrupt_key(self.keybind)
 
-    return True
+        return self.keybind
 
+    def _populate_default(self, buffer: Buffer) -> bool:
+        if buffer.text:
+            return False
 
-def _placeholder_move_left(buffer: Buffer, default_text: str) -> None:
-    _populate_default_placeholder(buffer, default_text)
+        buffer.insert_text(self.default_text)
 
-    if buffer.cursor_position > 0:
-        buffer.cursor_left(count=1)
+        return True
 
+    def _move_left(self, buffer: Buffer) -> None:
+        self._populate_default(buffer)
 
-def _placeholder_move_right(buffer: Buffer, default_text: str) -> None:
-    inserted = _populate_default_placeholder(buffer, default_text)
-    if not inserted:
-        buffer.cursor_right(count=1)
+        if buffer.cursor_position > 0:
+            buffer.cursor_left(count=1)
 
+    def _move_right(self, buffer: Buffer) -> None:
+        inserted = self._populate_default(buffer)
+        if not inserted:
+            buffer.cursor_right(count=1)
 
-def _placeholder_move_home(buffer: Buffer, default_text: str) -> None:
-    _populate_default_placeholder(buffer, default_text)
+    def _move_home(self, buffer: Buffer) -> None:
+        self._populate_default(buffer)
 
-    buffer.cursor_position = 0
+        buffer.cursor_position = 0
 
+    def _move_end(self, buffer: Buffer) -> None:
+        self._populate_default(buffer)
 
-def _placeholder_move_end(buffer: Buffer, default_text: str) -> None:
-    _populate_default_placeholder(buffer, default_text)
+        buffer.cursor_position = len(buffer.text)
 
-    buffer.cursor_position = len(buffer.text)
+    def _backspace(self, buffer: Buffer) -> None:
+        self._populate_default(buffer)
 
+        if buffer.text:
+            buffer.delete_before_cursor(count=1)
 
-def _placeholder_backspace(buffer: Buffer, default_text: str) -> None:
-    _populate_default_placeholder(buffer, default_text)
+    def _delete(self, buffer: Buffer) -> None:
+        self._populate_default(buffer)
 
-    if buffer.text:
-        buffer.delete_before_cursor(count=1)
+        if buffer.text:
+            buffer.delete(count=1)
 
+    def _bind_action(
+        self,
+        keys: Sequence[str],
+        action: Callable[[Buffer], None],
+    ) -> None:
+        for key in keys:
 
-def _placeholder_delete(buffer: Buffer, default_text: str) -> None:
-    _populate_default_placeholder(buffer, default_text)
-
-    if buffer.text:
-        buffer.delete(count=1)
-
-
-def _bind_placeholder_action(
-    keybind: KeyBindings,
-    keys: Sequence[str],
-    default_text: str,
-    action: Callable[[Buffer, str], None],
-) -> None:
-    for key in keys:
-
-        @keybind.add(key)
-        def _handler(
-            event: KeyPressEvent,
-            _action: Callable[[Buffer, str], None] = action,
-            _default_text: str = default_text,
-        ) -> None:  # pragma: no cover - interactive
-            _action(event.app.current_buffer, _default_text)
+            @self.keybind.add(key)
+            def _handler(
+                event: KeyPressEvent,
+                _action: Callable[[Buffer], None] = action,
+            ) -> None:  # pragma: no cover - interactive
+                _action(event.app.current_buffer)
 
 
 def _placeholder_key_bindings(default_text: str) -> KeyBindings:
-    keybind = KeyBindings()
-    _bind_placeholder_action(keybind, ("left",), default_text, _placeholder_move_left)
-    _bind_placeholder_action(keybind, ("right",), default_text, _placeholder_move_right)
-    _bind_placeholder_action(keybind, ("home",), default_text, _placeholder_move_home)
-    _bind_placeholder_action(keybind, ("end",), default_text, _placeholder_move_end)
-    _bind_placeholder_action(keybind, ("backspace", "c-h"), default_text, _placeholder_backspace)
-    _bind_placeholder_action(keybind, ("delete", "c-d"), default_text, _placeholder_delete)
-    _bind_interrupt_key(keybind)
-
-    return keybind
+    return DefaultPlaceholderBindings(default_text).build()
 
 
-def _apply_cli_answer(question: Question, value: object, answers: dict[str, Any]) -> object:
+def _apply_cli_answer(
+    question: Question, value: DefaultValue, answers: dict[str, DefaultValue]
+) -> DefaultValue:
     raw_value = value
 
     if question.multiselect:
@@ -872,7 +850,7 @@ def _apply_cli_answer(question: Question, value: object, answers: dict[str, Any]
         elif values[0] not in allowed:
             raise ValueError(f"invalid choice: {values[0]}")
 
-    processed: object
+    processed: DefaultValue
 
     if question.multiselect:
         processed = values
@@ -886,10 +864,10 @@ def _apply_cli_answer(question: Question, value: object, answers: dict[str, Any]
 
 def _apply_parser(
     question: Question,
-    value: object,
-    answers: dict[str, Any],
+    value: DefaultValue,
+    answers: AnswerMap,
     raw: str | None = None,
-) -> object:
+) -> DefaultValue:
     if question.parser and not question.multiselect:
         raw_value = raw if raw is not None else str(value)
         return question.parser(raw_value, answers)
@@ -899,8 +877,8 @@ def _apply_parser(
 
 def _run_validator(
     question: Question,
-    value: object,
-    answers: dict[str, Any],
+    value: DefaultValue,
+    answers: dict[str, DefaultValue],
     raw: str | None = None,
 ) -> None:
     if not question.validators:
@@ -911,13 +889,41 @@ def _run_validator(
     raw_value = raw if raw is not None else str(value)
 
     for validator in question.validators:
-        try:
+        if _validator_accepts_answers(validator):
             valid, message = validator(raw_value, candidate_answers)
-        except TypeError:
-            valid, message = validator(raw_value)
+        else:
+            valid, message = validator(raw_value)  # pyrefly: ignore[bad-argument-count]
 
         if not valid:
             raise ValueError(message or "invalid value.")
+
+
+def _validator_accepts_answers(validator: ValidatorType) -> TypeGuard[ContextValidatorFn]:
+    try:
+        signature = inspect.signature(validator)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"failed to inspect validator: {error}") from error
+
+    parameters = tuple(signature.parameters.values())
+    positional = tuple(
+        parameter
+        for parameter in parameters
+        if parameter.kind
+        in {
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        }
+    )
+    has_varargs = any(
+        parameter.kind is inspect.Parameter.VAR_POSITIONAL for parameter in parameters
+    )
+
+    if has_varargs or len(positional) >= 2:
+        return True
+    if len(positional) == 1:
+        return False
+
+    raise ValueError("validator must accept value or value and answers.")
 
 
 def _choice_label(value: str, label: str | None) -> str:
@@ -929,7 +935,7 @@ def supports_live_interaction() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def _print_error(message: object, style: Style) -> None:
+def _print_error(message: str | BaseException, style: Style) -> None:
     console.print(f"[{style.error.style}]{style.error.label}[/] {message}")
 
 
