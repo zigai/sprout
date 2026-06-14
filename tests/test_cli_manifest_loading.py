@@ -9,14 +9,9 @@ from jinja2 import Environment
 from jinja2.ext import Extension
 
 from sprout.cli import (
+    ManifestReader,
     _load_manifest,
     _load_manifest_module,
-    _manifest_apply,
-    _manifest_extensions,
-    _manifest_questions,
-    _manifest_style,
-    _manifest_template_dir,
-    _manifest_title,
     _resolve_questions,
 )
 from sprout.question import Question
@@ -32,7 +27,7 @@ def test_manifest_questions_is_required() -> None:
     module = ModuleType("manifest_module")
 
     with pytest.raises(SystemExit, match="must define a questions variable"):
-        _manifest_questions(module)
+        ManifestReader(vars(module)).questions()
 
 
 def test_manifest_questions_rejects_invalid_types() -> None:
@@ -41,12 +36,12 @@ def test_manifest_questions_rejects_invalid_types() -> None:
     module.questions = 123
 
     with pytest.raises(SystemExit, match="must be a sequence or a callable"):
-        _manifest_questions(module)
+        ManifestReader(vars(module)).questions()
 
     module.questions = "not-a-sequence-of-questions"
 
     with pytest.raises(SystemExit, match="must be a sequence or a callable"):
-        _manifest_questions(module)
+        ManifestReader(vars(module)).questions()
 
 
 def test_manifest_questions_callable_signature_validation() -> None:
@@ -58,13 +53,13 @@ def test_manifest_questions_callable_signature_validation() -> None:
     module.questions = questions
 
     with pytest.raises(SystemExit, match="must accept exactly two positional"):
-        _manifest_questions(module)
+        ManifestReader(vars(module)).questions()
 
     def valid_questions(_env: Environment, _destination: Path) -> list[Question]:
         return [Question(key="name", prompt="Name")]
 
     module.questions = valid_questions
-    resolved = _manifest_questions(module)
+    resolved = ManifestReader(vars(module)).questions()
     assert callable(resolved)
 
 
@@ -73,7 +68,7 @@ def test_manifest_apply_must_be_callable() -> None:
     module.apply = "nope"
 
     with pytest.raises(SystemExit, match=r"apply in sprout\.py must be a callable"):
-        _manifest_apply(module)
+        ManifestReader(vars(module)).apply()
 
 
 def test_manifest_style_must_be_style_instance() -> None:
@@ -81,7 +76,7 @@ def test_manifest_style_must_be_style_instance() -> None:
     module.style = "nope"
 
     with pytest.raises(SystemExit, match=r"must be an instance of sprout\.style\.Style"):
-        _manifest_style(module)
+        ManifestReader(vars(module)).style()
 
 
 def test_manifest_extensions_validation() -> None:
@@ -89,20 +84,20 @@ def test_manifest_extensions_validation() -> None:
     module.extensions = 5
 
     with pytest.raises(SystemExit, match="must be a sequence of Jinja2 extensions"):
-        _manifest_extensions(module)
+        ManifestReader(vars(module)).extensions()
 
     module.extensions = "nope"
 
     with pytest.raises(SystemExit, match="must be a sequence of Jinja2 extensions"):
-        _manifest_extensions(module)
+        ManifestReader(vars(module)).extensions()
 
     module.extensions = [object]
 
     with pytest.raises(SystemExit, match="must be a Jinja2 Extension subclass"):
-        _manifest_extensions(module)
+        ManifestReader(vars(module)).extensions()
 
     module.extensions = [DummyExtension]
-    assert _manifest_extensions(module) == (DummyExtension,)
+    assert ManifestReader(vars(module)).extensions() == (DummyExtension,)
 
 
 def test_manifest_title_validation() -> None:
@@ -110,7 +105,7 @@ def test_manifest_title_validation() -> None:
     module.title = 123
 
     with pytest.raises(SystemExit, match="must be a string or a callable"):
-        _manifest_title(module)
+        ManifestReader(vars(module)).title()
 
 
 def test_manifest_template_dir_validation() -> None:
@@ -118,7 +113,7 @@ def test_manifest_template_dir_validation() -> None:
     module.template_dir = 123
 
     with pytest.raises(SystemExit, match="must be a string or a Path"):
-        _manifest_template_dir(module)
+        ManifestReader(vars(module)).template_dir()
 
 
 def test_resolve_questions_validates_shape() -> None:

@@ -254,9 +254,10 @@ def test_run_generate_handles_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch
     cleaned = {"value": False}
 
     monkeypatch.setattr(
-        "sprout.cli._resolve_template",
-        lambda _args: (Path(), lambda: cleaned.update(value=True), manifest),
+        "sprout.cli._prepare_template_source",
+        lambda _template: (Path(), lambda: cleaned.update(value=True)),
     )
+    monkeypatch.setattr("sprout.cli._load_manifest", lambda _template_dir: manifest)
 
     def fake_execute_manifest(*_args: object, **_kwargs: object) -> object:
         raise KeyboardInterrupt

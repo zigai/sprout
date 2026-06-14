@@ -9,11 +9,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, cast
+from typing import TypeGuard
 
 from interfacy.appearance.layouts import InterfacyLayout
 from interfacy.argparse_backend.argument_parser import ArgumentParser, namespace_to_dict
@@ -23,11 +23,17 @@ from rich.text import Text
 
 from sprout.extensions import build_environment
 from sprout.prompt import ask_question, collect_answers, console, supports_live_interaction
-from sprout.question import Question
+from sprout.question import AnswerMap, DefaultValue, Question
 from sprout.style import Style
 
-SkipPredicate = Callable[[str, dict[str, Any]], bool]
-QuestionsSource = Sequence[Question] | Callable[[Environment, Path], Sequence[Question]]
+type HookCallable = Callable[..., object]
+type CreatedPaths = Sequence[Path | str] | None
+type ApplyResult = CreatedPaths | Path | str
+type HookKwargs = dict[str, object]
+
+SkipPredicate = Callable[[str, AnswerMap], bool]
+QuestionsCallable = Callable[[Environment, Path], Sequence[Question]]
+QuestionsSource = Sequence[Question] | QuestionsCallable
 
 
 @dataclass(frozen=True)
@@ -53,21 +59,21 @@ class Manifest:
 
     Attributes:
         questions (QuestionsSource): Question sequence or callable that builds questions.
-        apply (Callable[..., Any] | None): Optional custom file-generation hook.
+        apply (HookCallable | None): Optional custom file-generation hook.
         template_dir (str | Path | None): Optional template subdirectory relative to template root.
         skip (SkipPredicate | None): Optional predicate that skips files during rendering.
         style (Style | None): Optional style overrides for prompt rendering.
         extensions (Sequence[type[Extension]] | None): Optional Jinja extension classes.
-        title (str | Callable[..., Any] | None): Optional static or dynamic title renderer.
+        title (str | HookCallable | None): Optional static or dynamic title renderer.
     """
 
     questions: QuestionsSource
-    apply: Callable[..., Any] | None = None
+    apply: HookCallable | None = None
     template_dir: str | Path | None = None
     skip: SkipPredicate | None = None
     style: Style | None = None
     extensions: Sequence[type[Extension]] | None = None
-    title: str | Callable[..., Any] | None = None
+    title: str | HookCallable | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +94,156 @@ class PreparedTemplate:
     manifest: Manifest
     cleanup: Callable[[], None]
     questions: Sequence[Question]
+
+
+@dataclass(frozen=True)
+class ManifestContext:
+    env: Environment
+    template_dir: Path
+    template_root: Path
+    destination: Path
+    answers: dict[str, DefaultValue]
+    style: Style
+
+    def apply_values(self) -> HookKwargs:
+        return {
+            "env": self.env,
+            "environment": self.env,
+            "template_dir": self.template_dir,
+            "template": self.template_dir,
+            "template_root": self.template_root,
+            "destination": self.destination,
+            "dest": self.destination,
+            "project_dir": self.destination,
+            "output_dir": self.destination,
+            "answers": self.answers,
+            "context": self.answers,
+            "style": self.style,
+            "console": console,
+            "render_templates": render_templates,
+        }
+
+    def title_values(self) -> HookKwargs:
+        return {
+            "env": self.env,
+            "environment": self.env,
+            "template_dir": self.template_root,
+            "template": self.template_root,
+            "template_root": self.template_root,
+            "destination": self.destination,
+            "dest": self.destination,
+            "project_dir": self.destination,
+            "output_dir": self.destination,
+            "style": self.style,
+            "console": console,
+        }
+
+
+@dataclass(frozen=True)
+class ManifestReader:
+    values: Mapping[str, object]
+
+    def optional(self, name: str) -> object | None:
+        return self.values.get(name)
+
+    def questions(self) -> QuestionsSource:
+        questions_obj = self.optional("questions")
+        if questions_obj is None:
+            raise SystemExit("sprout.py must define a questions variable.")
+
+        if isinstance(questions_obj, Sequence) and not isinstance(
+            questions_obj, (str, bytes, bytearray)
+        ):
+            return list(questions_obj)
+
+        if callable(questions_obj):
+            _validate_questions_signature(questions_obj)
+
+            def resolve(env: Environment, destination: Path) -> Sequence[Question]:
+                return _validate_questions_sequence(questions_obj(env, destination))
+
+            return resolve
+
+        raise SystemExit("questions in sprout.py must be a sequence or a callable.")
+
+    def apply(self) -> HookCallable | None:
+        apply_obj = self.optional("apply")
+        if apply_obj is None:
+            return None
+        if not callable(apply_obj):
+            raise SystemExit("apply in sprout.py must be a callable if provided.")
+
+        return apply_obj
+
+    def style(self) -> Style | None:
+        style_obj = self.optional("style")
+        if style_obj is None:
+            return None
+        if not isinstance(style_obj, Style):
+            raise SystemExit("style in sprout.py must be an instance of sprout.style.Style.")
+
+        return style_obj
+
+    def extensions(self) -> tuple[type[Extension], ...] | None:
+        extensions_obj = self.optional("extensions")
+        if extensions_obj is None:
+            return None
+
+        if not isinstance(extensions_obj, Sequence) or isinstance(
+            extensions_obj,
+            (str, bytes, bytearray),
+        ):
+            raise SystemExit("extensions in sprout.py must be a sequence of Jinja2 extensions.")
+
+        checked: list[type[Extension]] = []
+        for extension in extensions_obj:
+            if not isinstance(extension, type) or not issubclass(extension, Extension):
+                raise SystemExit("each entry in extensions must be a Jinja2 Extension subclass.")
+
+            checked.append(extension)
+
+        return tuple(checked)
+
+    def title(self) -> str | HookCallable | None:
+        title_obj = self.optional("title")
+        if title_obj is None:
+            return None
+        if isinstance(title_obj, str):
+            return title_obj
+        if callable(title_obj):
+            return title_obj
+
+        raise SystemExit("title in sprout.py must be a string or a callable.")
+
+    def template_dir(self) -> str | Path | None:
+        template_dir_obj = self.optional("template_dir")
+        if template_dir_obj is None:
+            return None
+        if not isinstance(template_dir_obj, (str, Path)):
+            raise SystemExit("template_dir in sprout.py must be a string or a Path.")
+
+        return template_dir_obj
+
+    def skip(self) -> SkipPredicate | None:
+        skip_obj = self.optional("should_skip_file")
+        if skip_obj is None:
+            return None
+
+        if not callable(skip_obj):
+            raise SystemExit(
+                "should_skip_file in sprout.py must be a callable taking (relative_path: str, answers)."
+            )
+
+        _validate_skip_signature(skip_obj)
+
+        def should_skip(relative_path: str, answers: AnswerMap) -> bool:
+            result = skip_obj(relative_path, answers)
+            if not isinstance(result, bool):
+                raise SystemExit("should_skip_file in sprout.py must return a bool.")
+
+            return result
+
+        return should_skip
 
 
 def ensure_destination(path: Path, *, force: bool, style: Style | None = None) -> None:
@@ -156,7 +312,7 @@ class TemplateRenderer:
         env: Environment,
         template_dir: Path,
         destination: Path,
-        answers: dict[str, Any],
+        answers: dict[str, DefaultValue],
         skip: SkipPredicate | None = None,
         render_paths: bool = False,
         ignore: Sequence[str] | None = None,
@@ -171,6 +327,7 @@ class TemplateRenderer:
 
     def render(self) -> list[Path]:
         created: list[Path] = []
+
         for source in sorted(self.template_dir.rglob("*")):
             if source.is_dir() or _should_ignore_path(source, self.ignore_patterns):
                 continue
@@ -222,7 +379,7 @@ def render_templates(
     env: Environment | None,
     template_dir: Path,
     destination: Path,
-    answers: dict[str, Any],
+    answers: dict[str, DefaultValue],
     *,
     skip: SkipPredicate | None = None,
     render_paths: bool = False,
@@ -271,6 +428,7 @@ def summarize(created: Sequence[Path]) -> None:
 def _resolve_actual_template_dir(root: Path, declared: str | Path | None) -> Path:
     if declared is None or (isinstance(declared, str) and declared.strip() == ""):
         return (root / "template").resolve()
+
     path = Path(declared)
 
     return path if path.is_absolute() else (root / path).resolve()
@@ -284,11 +442,11 @@ def run_template(
     skip: SkipPredicate | None = None,
     extensions: Sequence[type[Extension]] | None = None,
     style: Style | None = None,
-    initial_answers: dict[str, Any] | None = None,
+    initial_answers: dict[str, DefaultValue] | None = None,
     force: bool = False,
     banner: Callable[[], None] | None = None,
     summary: Callable[[Sequence[Path]], None] | None = None,
-) -> tuple[dict[str, Any], Sequence[Path]]:
+) -> tuple[dict[str, DefaultValue], Sequence[Path]]:
     """
     Generate files from a template directory and return answers with created paths.
 
@@ -300,7 +458,7 @@ def run_template(
         skip (SkipPredicate | None): Optional predicate that skips files by relative path.
         extensions (Sequence[type[Extension]] | None): Optional Jinja extension classes.
         style (Style | None): Optional style overrides used while prompting.
-        initial_answers (dict[str, Any] | None): Optional pre-filled answers keyed by question key.
+        initial_answers (dict[str, DefaultValue] | None): Optional pre-filled answers keyed by question key.
         force (bool): Whether to skip overwrite confirmation for non-empty destinations.
         banner (Callable[[], None] | None): Optional callback invoked before prompting.
         summary (Callable[[Sequence[Path]], None] | None): Optional callback used to print a
@@ -345,14 +503,102 @@ def run_template(
     return answers, created
 
 
+class ManifestExecution:
+    def __init__(
+        self,
+        manifest: Manifest,
+        *,
+        template_dir: Path,
+        destination: Path,
+        force: bool = False,
+        initial_answers: dict[str, DefaultValue] | None = None,
+    ) -> None:
+        self.manifest = manifest
+        self.template_root = template_dir
+        self.destination = destination
+        self.force = force
+        self.initial_answers = initial_answers
+        self.style = manifest.style or Style()
+        self.actual_template_dir = _resolve_actual_template_dir(
+            self.template_root,
+            manifest.template_dir,
+        )
+        self.env = build_environment(
+            self.actual_template_dir,
+            extensions=manifest.extensions or (),
+        )
+        self.answers: dict[str, DefaultValue] = {}
+
+    def execute(self) -> tuple[dict[str, DefaultValue], Sequence[Path] | None]:
+        _display_title(
+            self.manifest.title,
+            context=self._context(),
+        )
+
+        questions = _resolve_questions(self.manifest.questions, self.env, self.destination)
+        self.answers = collect_answers(
+            questions,
+            style=self.style,
+            initial_answers=self.initial_answers,
+        )
+        ensure_destination(self.destination, force=self.force, style=self.style)
+
+        created = self._create_files()
+        if created is None:
+            return self.answers, None
+
+        created_paths = _normalise_created(created, self.destination)
+        self._summarize_created(created_paths)
+
+        return self.answers, created_paths
+
+    def _context(self) -> ManifestContext:
+        return ManifestContext(
+            env=self.env,
+            template_dir=self.actual_template_dir,
+            template_root=self.template_root,
+            destination=self.destination,
+            answers=self.answers,
+            style=self.style,
+        )
+
+    def _create_files(self) -> CreatedPaths:
+        if self.manifest.apply is not None:
+            return _invoke_apply(
+                self.manifest.apply,
+                context=self._context(),
+            )
+
+        if not self.actual_template_dir.exists():
+            raise SystemExit(
+                f"Template directory not found. Expected {self.actual_template_dir} to exist."
+            )
+
+        return render_templates(
+            self.env,
+            self.actual_template_dir,
+            self.destination,
+            self.answers,
+            skip=self.manifest.skip,
+            render_paths=True,
+        )
+
+    def _summarize_created(self, created_paths: Sequence[Path]) -> None:
+        if not created_paths:
+            console.print(Text("No files were generated.", style="yellow"))
+            return
+
+        summarize(created_paths)
+
+
 def execute_manifest(
     manifest: Manifest,
     *,
     template_dir: Path,
     destination: Path,
     force: bool = False,
-    initial_answers: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any], Sequence[Path] | None]:
+    initial_answers: dict[str, DefaultValue] | None = None,
+) -> tuple[dict[str, DefaultValue], Sequence[Path] | None]:
     """
     Execute a manifest workflow and return answers with created paths.
 
@@ -361,65 +607,18 @@ def execute_manifest(
         template_dir (Path): Template root that contains `sprout.py` and template files.
         destination (Path): Output directory for generated files.
         force (bool): Whether to skip overwrite confirmation for non-empty destinations.
-        initial_answers (dict[str, Any] | None): Optional pre-filled answers keyed by question key.
+        initial_answers (dict[str, DefaultValue] | None): Optional pre-filled answers keyed by question key.
 
     Raises:
         SystemExit: If manifest hooks fail validation or template directories are missing.
     """
-    style = manifest.style or Style()
-    template_root = template_dir
-
-    actual_template_dir = _resolve_actual_template_dir(template_root, manifest.template_dir)
-
-    env = build_environment(actual_template_dir, extensions=manifest.extensions or ())
-
-    _display_title(
-        manifest.title,
-        env=env,
-        template_dir=template_root,
+    return ManifestExecution(
+        manifest,
+        template_dir=template_dir,
         destination=destination,
-        style=style,
-    )
-
-    questions = _resolve_questions(manifest.questions, env, destination)
-    answers = collect_answers(questions, style=style, initial_answers=initial_answers)
-    ensure_destination(destination, force=force, style=style)
-
-    if manifest.apply is not None:
-        created = _invoke_apply(
-            manifest.apply,
-            env=env,
-            template_dir=actual_template_dir,
-            template_root=template_root,
-            destination=destination,
-            answers=answers,
-            style=style,
-        )
-    else:
-        if not actual_template_dir.exists():
-            raise SystemExit(
-                f"Template directory not found. Expected {actual_template_dir} to exist."
-            )
-
-        created = render_templates(
-            env,
-            actual_template_dir,
-            destination,
-            answers,
-            skip=manifest.skip,
-            render_paths=True,
-        )
-
-    if created is None:
-        return answers, None
-
-    created_paths = _normalise_created(created, destination)
-    if not created_paths:
-        console.print(Text("No files were generated.", style="yellow"))
-    else:
-        summarize(created_paths)
-
-    return answers, created_paths
+        force=force,
+        initial_answers=initial_answers,
+    ).execute()
 
 
 def generate(
@@ -446,7 +645,7 @@ def _run_generate(
     destination: str | Path,
     *,
     force: bool,
-    initial_answers: dict[str, Any] | None,
+    initial_answers: dict[str, DefaultValue] | None,
     prepared: PreparedTemplate | None,
 ) -> int:
     destination_path = Path(destination).expanduser().resolve()
@@ -461,7 +660,8 @@ def _run_generate(
             template_dir = prepared.template_dir
             manifest = prepared.manifest
         else:
-            template_dir, cleanup, manifest = _resolve_template(args)
+            template_dir, cleanup = _prepare_template_source(args.template_src)
+            manifest = _load_manifest(template_dir)
 
         execute_manifest(
             manifest,
@@ -502,62 +702,45 @@ def _resolve_questions(
 ) -> Sequence[Question]:
     resolved = source(env, destination) if callable(source) else source
 
-    if not isinstance(resolved, Sequence):
-        raise SystemExit("questions must be a sequence of Question instances.")
-
-    questions = list(resolved)
-    if not all(isinstance(question, Question) for question in questions):
-        raise SystemExit("each entry in questions must be a Question instance.")
-
-    return questions
+    return _validate_questions_sequence(resolved)
 
 
 def _invoke_apply(
-    apply_fn: Callable[..., Any],
+    apply_fn: HookCallable,
     *,
-    env: Environment,
-    template_dir: Path,
-    template_root: Path,
-    destination: Path,
-    answers: dict[str, Any],
-    style: Style,
-) -> Sequence[Path | str] | None:
-    available: dict[str, Any] = {
-        "env": env,
-        "environment": env,
-        "template_dir": template_dir,
-        "template": template_dir,
-        "template_root": template_root,
-        "destination": destination,
-        "dest": destination,
-        "project_dir": destination,
-        "output_dir": destination,
-        "answers": answers,
-        "context": answers,
-        "style": style,
-        "console": console,
-        "render_templates": render_templates,
-    }
-
-    signature = inspect.signature(apply_fn)
-    kwargs: dict[str, Any] = {}
-    for name in signature.parameters:
-        if name in available:
-            kwargs[name] = available[name]
-
+    context: ManifestContext,
+) -> CreatedPaths:
+    kwargs = _select_hook_kwargs(apply_fn, context.apply_values())
     try:
         result = apply_fn(**kwargs)
     except TypeError as error:
         raise SystemExit(f"failed to run apply(): {error}") from error
 
+    return _normalise_apply_result(result)
+
+
+def _normalise_apply_result(result: object) -> CreatedPaths:
+    if not _is_apply_result(result):
+        raise SystemExit("apply() must return None, a path, or a sequence of paths.")
+
     if result is None:
         return None
     if isinstance(result, (str, Path)):
         return [result]
-    if isinstance(result, Sequence):
-        return list(result)
 
-    raise SystemExit("apply() must return None, a path, or a sequence of paths.")
+    return list(result)
+
+
+def _is_apply_result(result: object) -> TypeGuard[ApplyResult]:
+    if result is None or isinstance(result, (str, Path)):
+        return True
+
+    return isinstance(result, Sequence) and all(isinstance(item, (str, Path)) for item in result)
+
+
+def _select_hook_kwargs(hook: HookCallable, available: Mapping[str, object]) -> HookKwargs:
+    signature = inspect.signature(hook)
+    return {name: available[name] for name in signature.parameters if name in available}
 
 
 def _prepare_template_source(template_src: str) -> tuple[Path, Callable[[], None]]:
@@ -569,7 +752,8 @@ def _prepare_template_source(template_src: str) -> tuple[Path, Callable[[], None
         return candidate.resolve(), lambda: None
 
     url = _normalise_git_url(template_src)
-    temp_dir = Path(tempfile.mkdtemp(prefix="sprout-template-"))
+    temp_dir_context = tempfile.TemporaryDirectory(prefix="sprout-template-")
+    temp_dir = Path(temp_dir_context.name)
     target_dir = temp_dir / "template"
     git_executable = _resolve_git_executable()
 
@@ -581,10 +765,11 @@ def _prepare_template_source(template_src: str) -> tuple[Path, Callable[[], None
             text=True,
         )
     except subprocess.CalledProcessError as error:  # pragma: no cover - external dependency
+        temp_dir_context.cleanup()
         stderr = error.stderr.strip() if error.stderr else str(error)
         raise SystemExit(f"failed to clone template from {url}: {stderr}") from error
 
-    return target_dir, lambda: shutil.rmtree(temp_dir, ignore_errors=True)
+    return target_dir, temp_dir_context.cleanup
 
 
 def _resolve_git_executable() -> str:
@@ -636,7 +821,7 @@ def _load_manifest_module(template_dir: Path, manifest_path: Path) -> ModuleType
     return module
 
 
-def _validate_questions_signature(questions: Callable[..., Any]) -> None:
+def _validate_questions_signature(questions: HookCallable) -> None:
     try:
         signature = inspect.signature(questions)
     except (TypeError, ValueError) as error:
@@ -660,88 +845,18 @@ def _validate_questions_signature(questions: Callable[..., Any]) -> None:
         )
 
 
-def _manifest_questions(module: ModuleType) -> QuestionsSource:
-    questions_obj: object | None = getattr(module, "questions", None)
-    if questions_obj is None:
-        raise SystemExit("sprout.py must define a questions variable.")
+def _validate_questions_sequence(value: object) -> Sequence[Question]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise SystemExit("questions must be a sequence of Question instances.")
 
-    if isinstance(questions_obj, Sequence) and not isinstance(
-        questions_obj, (str, bytes, bytearray)
-    ):
-        return cast(QuestionsSource, questions_obj)
+    questions = list(value)
+    if not all(isinstance(question, Question) for question in questions):
+        raise SystemExit("each entry in questions must be a Question instance.")
 
-    if callable(questions_obj):
-        questions_fn = cast(Callable[..., Any], questions_obj)
-        _validate_questions_signature(questions_fn)
-        return cast(QuestionsSource, questions_fn)
-
-    raise SystemExit("questions in sprout.py must be a sequence or a callable.")
+    return questions
 
 
-def _manifest_apply(module: ModuleType) -> Callable[..., Any] | None:
-    apply_obj: object | None = getattr(module, "apply", None)
-    if apply_obj is None:
-        return None
-    if not callable(apply_obj):
-        raise SystemExit("apply in sprout.py must be a callable if provided.")
-
-    return cast(Callable[..., Any], apply_obj)
-
-
-def _manifest_style(module: ModuleType) -> Style | None:
-    style_obj: object | None = getattr(module, "style", None)
-    if style_obj is None:
-        return None
-    if not isinstance(style_obj, Style):
-        raise SystemExit("style in sprout.py must be an instance of sprout.style.Style.")
-
-    return style_obj
-
-
-def _manifest_extensions(module: ModuleType) -> tuple[type[Extension], ...] | None:
-    extensions_obj: object | None = getattr(module, "extensions", None)
-    if extensions_obj is None:
-        return None
-
-    if not isinstance(extensions_obj, Sequence) or isinstance(
-        extensions_obj,
-        (str, bytes, bytearray),
-    ):
-        raise SystemExit("extensions in sprout.py must be a sequence of Jinja2 extensions.")
-
-    checked: list[type[Extension]] = []
-    for extension in extensions_obj:
-        if not isinstance(extension, type) or not issubclass(extension, Extension):
-            raise SystemExit("each entry in extensions must be a Jinja2 Extension subclass.")
-
-        checked.append(extension)
-
-    return tuple(checked)
-
-
-def _manifest_title(module: ModuleType) -> str | Callable[..., Any] | None:
-    title_obj: object | None = getattr(module, "title", None)
-    if title_obj is None:
-        return None
-    if isinstance(title_obj, str):
-        return title_obj
-    if callable(title_obj):
-        return cast(Callable[..., Any], title_obj)
-
-    raise SystemExit("title in sprout.py must be a string or a callable.")
-
-
-def _manifest_template_dir(module: ModuleType) -> str | Path | None:
-    template_dir_obj: object | None = getattr(module, "template_dir", None)
-    if template_dir_obj is None:
-        return None
-    if not isinstance(template_dir_obj, (str, Path)):
-        raise SystemExit("template_dir in sprout.py must be a string or a Path.")
-
-    return template_dir_obj
-
-
-def _validate_skip_signature(skip: Callable[..., Any]) -> None:
+def _validate_skip_signature(skip: HookCallable) -> None:
     try:
         signature = inspect.signature(skip)
     except (TypeError, ValueError) as error:
@@ -766,53 +881,29 @@ def _validate_skip_signature(skip: Callable[..., Any]) -> None:
         )
 
 
-def _manifest_skip(module: ModuleType) -> SkipPredicate | None:
-    skip_obj: object | None = getattr(module, "should_skip_file", None)
-    if skip_obj is None:
-        return None
-
-    if not callable(skip_obj):
-        raise SystemExit(
-            "should_skip_file in sprout.py must be a callable taking (relative_path: str, answers)."
-        )
-    skip_fn = cast(Callable[..., Any], skip_obj)
-    _validate_skip_signature(skip_fn)
-
-    return cast(SkipPredicate, skip_fn)
-
-
 def _load_manifest(template_dir: Path) -> Manifest:
     manifest_path = template_dir / "sprout.py"
     if not manifest_path.is_file():
         raise SystemExit(f"template source {template_dir} is missing sprout.py.")
 
     module = _load_manifest_module(template_dir, manifest_path)
-    questions = _manifest_questions(module)
-    apply_fn = _manifest_apply(module)
-    style = _manifest_style(module)
-    extensions = _manifest_extensions(module)
-    title = _manifest_title(module)
-    manifest_template_dir = _manifest_template_dir(module)
-    skip = _manifest_skip(module)
+    reader = ManifestReader(vars(module))
 
     return Manifest(
-        questions=questions,
-        apply=apply_fn,
-        template_dir=manifest_template_dir,
-        skip=skip,
-        style=style,
-        extensions=extensions,
-        title=title,
+        questions=reader.questions(),
+        apply=reader.apply(),
+        template_dir=reader.template_dir(),
+        skip=reader.skip(),
+        style=reader.style(),
+        extensions=reader.extensions(),
+        title=reader.title(),
     )
 
 
 def _display_title(
-    title: str | Callable[..., Any] | None,
+    title: str | HookCallable | None,
     *,
-    env: Environment,
-    template_dir: Path,
-    destination: Path,
-    style: Style,
+    context: ManifestContext,
 ) -> None:
     if title is None:
         return
@@ -821,26 +912,7 @@ def _display_title(
         console.print(title)
         return
 
-    available: dict[str, Any] = {
-        "env": env,
-        "environment": env,
-        "template_dir": template_dir,
-        "template": template_dir,
-        "template_root": template_dir,
-        "destination": destination,
-        "dest": destination,
-        "project_dir": destination,
-        "output_dir": destination,
-        "style": style,
-        "console": console,
-    }
-
-    signature = inspect.signature(title)
-    kwargs: dict[str, Any] = {}
-    for name in signature.parameters:
-        if name in available:
-            kwargs[name] = available[name]
-
+    kwargs = _select_hook_kwargs(title, context.title_values())
     try:
         result = title(**kwargs)
     except TypeError as error:
@@ -849,13 +921,10 @@ def _display_title(
     if result is None:
         return
 
+    if not isinstance(result, str):
+        raise SystemExit("title() must return a string or None.")
+
     console.print(result)
-
-
-def _resolve_template(args: TemplateCLIArgs) -> tuple[Path, Callable[[], None], Manifest]:
-    template_dir, cleanup = _prepare_template_source(args.template_src)
-    manifest = _load_manifest(template_dir)
-    return template_dir, cleanup, manifest
 
 
 def _sanitize_question_key(key: str) -> str:
@@ -1009,25 +1078,37 @@ def _build_cli_parser(
         dest = _sanitize_question_key(question.key)
         if dest in used_dests:
             continue
+
         used_dests.add(dest)
 
         flag = f"--{_flag_from_question_key(question.key)}"
-        kwargs: dict[str, Any] = {
-            "dest": dest,
-            "help": _format_question_help(question),
-            "default": argparse.SUPPRESS,
-            "type": str,
-        }
-
+        help_text = _format_question_help(question)
+        choice_values: list[str] | None = None
         if not callable(question.choices):
             choices = question.resolve_choices({})
             if choices:
-                kwargs["choices"] = [value for value, _label in choices]
+                choice_values = [value for value, _label in choices]
 
         if question.multiselect:
-            kwargs["action"] = "append"
+            parser.add_argument(
+                flag,
+                dest=dest,
+                help=help_text,
+                default=argparse.SUPPRESS,
+                type=str,
+                choices=choice_values,
+                action="append",
+            )
+            continue
 
-        parser.add_argument(flag, **kwargs)
+        parser.add_argument(
+            flag,
+            dest=dest,
+            help=help_text,
+            default=argparse.SUPPRESS,
+            type=str,
+            choices=choice_values,
+        )
 
     return parser
 
@@ -1068,7 +1149,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         template = namespace.get("template")
         destination_value = namespace.get("destination")
         force = bool(namespace.get("force", False))
-        cli_answers: dict[str, Any] = {}
+        cli_answers: dict[str, DefaultValue] = {}
 
         if prepared is not None:
             for question in prepared.questions:

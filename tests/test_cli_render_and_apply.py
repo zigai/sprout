@@ -8,6 +8,7 @@ from jinja2 import Environment
 
 from sprout.cli import (
     Manifest,
+    ManifestContext,
     _invoke_apply,
     _normalise_created,
     _normalise_git_url,
@@ -156,6 +157,14 @@ def test_invoke_apply_injects_arguments_and_normalises_result(tmp_path: Path) ->
 
     answers = {"name": "demo"}
     style = Style()
+    context = ManifestContext(
+        env=environment,
+        template_dir=template_dir,
+        template_root=tmp_path,
+        destination=destination,
+        answers=answers,
+        style=style,
+    )
 
     def apply_fn(env: Environment, destination: Path, answers: dict[str, object]) -> str:
         assert env is environment
@@ -166,12 +175,7 @@ def test_invoke_apply_injects_arguments_and_normalises_result(tmp_path: Path) ->
 
     result = _invoke_apply(
         apply_fn,
-        env=environment,
-        template_dir=template_dir,
-        template_root=tmp_path,
-        destination=destination,
-        answers=answers,
-        style=style,
+        context=context,
     )
 
     assert result == ["README.md"]
@@ -181,12 +185,14 @@ def test_invoke_apply_rejects_invalid_return_type(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="must return None, a path, or a sequence"):
         _invoke_apply(
             lambda: 5,
-            env=Environment(),
-            template_dir=tmp_path,
-            template_root=tmp_path,
-            destination=tmp_path,
-            answers={},
-            style=Style(),
+            context=ManifestContext(
+                env=Environment(),
+                template_dir=tmp_path,
+                template_root=tmp_path,
+                destination=tmp_path,
+                answers={},
+                style=Style(),
+            ),
         )
 
 
@@ -197,12 +203,14 @@ def test_invoke_apply_wraps_type_error(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="failed to run apply"):
         _invoke_apply(
             apply_fn,
-            env=Environment(),
-            template_dir=tmp_path,
-            template_root=tmp_path,
-            destination=tmp_path,
-            answers={},
-            style=Style(),
+            context=ManifestContext(
+                env=Environment(),
+                template_dir=tmp_path,
+                template_root=tmp_path,
+                destination=tmp_path,
+                answers={},
+                style=Style(),
+            ),
         )
 
 
@@ -295,8 +303,17 @@ def test_prepare_template_source_remote_success(
 ) -> None:
     created_temp = tmp_path / "download"
     created_temp.mkdir()
+    cleanup_calls: list[str] = []
+
+    class FakeTemporaryDirectory:
+        def __init__(self, prefix: str) -> None:
+            self.name = str(created_temp)
+
+        def cleanup(self) -> None:
+            cleanup_calls.append(self.name)
+
     monkeypatch.setattr("sprout.cli._resolve_git_executable", lambda: "git")
-    monkeypatch.setattr("sprout.cli.tempfile.mkdtemp", lambda prefix: str(created_temp))
+    monkeypatch.setattr("sprout.cli.tempfile.TemporaryDirectory", FakeTemporaryDirectory)
 
     calls: list[list[str]] = []
 
@@ -312,6 +329,7 @@ def test_prepare_template_source_remote_success(
     assert calls
     assert calls[0][:3] == ["git", "clone", "--depth"]
     cleanup()
+    assert cleanup_calls == [str(created_temp)]
 
 
 def test_resolve_git_executable_and_url_normalisation(monkeypatch: pytest.MonkeyPatch) -> None:
