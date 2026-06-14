@@ -11,10 +11,18 @@ from sprout.prompt import (
 )
 from sprout.question import YES_NO_CHOICES, Question, parse_yes_no
 from sprout.style import ErrorStyle, InlineStyle, MenuStyle, PromptStyle, Style, SummaryStyle
-from sprout.validators import ValidatorFn, ValidatorType, validate_repository_url
+from sprout.validators import (
+    ContextValidatorFn,
+    ValidationResult,
+    ValidatorAnswers,
+    ValidatorFn,
+    ValidatorType,
+    validate_repository_url,
+)
 
 __all__ = [
     "YES_NO_CHOICES",
+    "ContextValidatorFn",
     "CurrentYearExtension",
     "ErrorStyle",
     "GitDefaultsExtension",
@@ -25,6 +33,8 @@ __all__ = [
     "Question",
     "Style",
     "SummaryStyle",
+    "ValidationResult",
+    "ValidatorAnswers",
     "ValidatorFn",
     "ValidatorType",
     "ask_question",

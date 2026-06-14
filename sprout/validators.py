@@ -2,25 +2,28 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from typing import Any
 from urllib.parse import urlparse
 
-ValidatorFn = Callable[[str], tuple[bool, str | None]]
-ValidatorType = Callable[..., tuple[bool, str | None]]
+type ValidationResult = tuple[bool, str | None]
+type ValidatorAnswers = Mapping[str, object]
+
+ValidatorFn = Callable[[str], ValidationResult]
+ContextValidatorFn = Callable[[str, ValidatorAnswers], ValidationResult]
+ValidatorType = ValidatorFn | ContextValidatorFn
 
 SSH_URL_PATTERN = re.compile(r"^git@[\w.-]+:[\w./-]+$")
 
 
 def validate_repository_url(
     value: str,
-    _answers: Mapping[str, Any] | None = None,
+    _answers: ValidatorAnswers | None = None,
 ) -> tuple[bool, str | None]:
     """
     Validate a repository URL and return a `(valid, message)` pair.
 
     Args:
         value (str): Candidate repository URL. Leading and trailing whitespace is ignored.
-        _answers (Mapping[str, Any] | None): Optional answers map for interface compatibility.
+        _answers (ValidatorAnswers | None): Optional answers map for interface compatibility.
             This parameter is unused.
     """
     url = value.strip()
@@ -38,6 +41,9 @@ def validate_repository_url(
 
 
 __all__ = [
+    "ContextValidatorFn",
+    "ValidationResult",
+    "ValidatorAnswers",
     "ValidatorFn",
     "ValidatorType",
     "validate_repository_url",
