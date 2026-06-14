@@ -11,6 +11,10 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from jinja2.ext import Extension
 
 
+def _set_environment_global(environment: Environment, name: str, value: str | int) -> None:
+    environment.globals[name] = value  # pyrefly: ignore[unsupported-operation]
+
+
 class GitDefaultsExtension(Extension):
     """Jinja extension that injects Git configuration defaults."""
 
@@ -19,9 +23,9 @@ class GitDefaultsExtension(Extension):
 
         self._repo_config_path = self._find_repo_config_path(Path.cwd())
         self._config_paths = self._collect_git_config_paths(self._repo_config_path)
-        environment.globals["git_user_name"] = self._get_git_config("user.name")
-        environment.globals["git_user_email"] = self._get_git_config("user.email")
-        environment.globals["github_username"] = self._get_github_username()
+        _set_environment_global(environment, "git_user_name", self._get_git_config("user.name"))
+        _set_environment_global(environment, "git_user_email", self._get_git_config("user.email"))
+        _set_environment_global(environment, "github_username", self._get_github_username())
 
     def _collect_git_config_paths(self, repo_config_path: Path | None) -> tuple[Path, ...]:
         config_paths: list[Path] = []
@@ -99,6 +103,7 @@ class GitDefaultsExtension(Extension):
             parser = self._load_config(config_path)
             if parser is None:
                 continue
+
             value = parser.get(section, option, fallback="").strip()
             if value:
                 return value
@@ -112,6 +117,7 @@ class GitDefaultsExtension(Extension):
                 for section in parser.sections():
                     if not section.startswith('remote "'):
                         continue
+
                     remote_url = parser.get(section, "url", fallback="")
                     match = re.search(r"github\.com[:/]([^/]+)", remote_url)
                     if match:
@@ -126,7 +132,7 @@ class CurrentYearExtension(Extension):
     def __init__(self, environment: Environment) -> None:
         super().__init__(environment)
 
-        environment.globals["current_year"] = dt.datetime.now(tz=dt.UTC).year
+        _set_environment_global(environment, "current_year", dt.datetime.now(tz=dt.UTC).year)
 
 
 DEFAULT_EXTENSIONS: tuple[type[Extension], ...] = (GitDefaultsExtension,)
@@ -165,6 +171,7 @@ def build_environment(
     for extension_cls in extensions or ():
         if extension_cls in applied:
             continue
+
         extension_cls(env)
         applied.add(extension_cls)
 
