@@ -409,17 +409,22 @@ def render_templates(
     return renderer.render()
 
 
-def summarize(created: Sequence[Path]) -> None:
+def summarize(created: Sequence[Path], destination: Path | None = None) -> None:
     """
     Print a summary of generated relative file paths.
 
     Args:
         created (Sequence[Path]): Created paths relative to the destination directory.
+        destination (Path | None): Directory where files were generated.
     """
     if not created:
         return
 
-    console.print(Text("\nGenerated files", style="white"))
+    heading = "\nGenerated files"
+    if destination is not None:
+        heading = f"{heading} in {destination}"
+
+    console.print(Text(heading, style="white"), soft_wrap=True)
 
     for path in created:
         console.print(Text(f"  • {path}", style="white"))
@@ -498,7 +503,7 @@ def run_template(
     if summary:
         summary(created)
     else:
-        summarize(created)
+        summarize(created, destination)
 
     return answers, created
 
@@ -588,7 +593,7 @@ class ManifestExecution:
             console.print(Text("No files were generated.", style="yellow"))
             return
 
-        summarize(created_paths)
+        summarize(created_paths, self.destination)
 
 
 def execute_manifest(
