@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from sprout.cli import main
 from tests.conftest import MakeTemplate
 
@@ -9,6 +11,7 @@ from tests.conftest import MakeTemplate
 def test_main_generates_project_from_local_template(
     make_template: MakeTemplate,
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     template_root = make_template(
         """
@@ -23,6 +26,9 @@ def test_main_generates_project_from_local_template(
 
     assert exit_code == 0
     assert (destination / "README.md").read_text(encoding="utf-8") == "name=demo\n"
+    output = capsys.readouterr().out
+    assert f"Generated files in {destination}" in output
+    assert "  • README.md" in output
 
 
 def test_main_honors_should_skip_file(make_template: MakeTemplate, tmp_path: Path) -> None:
