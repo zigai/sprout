@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import inspect
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import Application
@@ -17,9 +16,15 @@ from rich.console import Console
 from rich.control import Control, ControlType
 from rich.text import Text
 
+from sprout.prompt_model import (
+    AnswerProcessor,
+    Choice,
+    ResolvedPrompt,
+    apply_parser,
+    run_validator,
+)
 from sprout.question import AnswerMap, DefaultValue, Question
 from sprout.style import Style
-from sprout.validators import ContextValidatorFn, ValidatorType
 
 if TYPE_CHECKING:
     from prompt_toolkit.buffer import Buffer
@@ -27,7 +32,6 @@ if TYPE_CHECKING:
 
 
 console = Console()
-type Choice = tuple[str, str]
 type ChoiceLabelMap = Mapping[str, str | None]
 type ChoiceChoiceMap = dict[str, str | None]
 
@@ -57,7 +61,7 @@ def collect_answers(
         if question.key in provided and provided[question.key] is not None:
             raw_value = provided[question.key]
             try:
-                answers[question.key] = _apply_cli_answer(question, raw_value, answers)
+                answers[question.key] = AnswerProcessor(question, answers).process_cli(raw_value)
             except ValueError as error:
                 raise SystemExit(f"{question.key}: {error}") from error
 
@@ -90,32 +94,27 @@ def ask_question(
     Raises:
         ValueError: If inline-choice parsing or validation fails.
     """
-    default_value = question.resolve_default(answers)
+    resolved = ResolvedPrompt.from_question(question, answers)
+    processor = AnswerProcessor(question, answers)
 
-    # resolve dynamic choices
-    resolved_choices = question.resolve_choices(answers)
-    choices: list[Choice] = list(resolved_choices) if resolved_choices is not None else []
-    inline_choice_enabled = len(choices) == 2 and not question.multiselect
-
-    if inline_choice_enabled and supports_live_interaction():
+    if resolved.inline_choice_enabled and supports_live_interaction():
         selection = _prompt_toolkit_inline_choice(
             question,
-            choices,
-            default_value,
+            resolved.choices,
+            resolved.default_value,
             style,
         )
-        processed = _apply_parser(question, selection, answers)
         raw_selection = selection if isinstance(selection, str) else str(selection)
-        _run_validator(question, processed, answers, raw_selection)
-        value_to_label = dict(choices)
+        processed = processor.process(selection, raw=raw_selection)
+        value_to_label = dict(resolved.choices)
         _print_choice_summary(question, selection, value_to_label, style)
 
         return processed
 
     inline_preview = ""
 
-    if inline_choice_enabled and choices:
-        inline_preview = _format_inline_preview(default_value, style, choices)
+    if resolved.inline_choice_enabled and resolved.choices:
+        inline_preview = _format_inline_preview(resolved.default_value, style, resolved.choices)
 
     header = Text()
     header.append(style.prompt.prefix, style=style.prompt.prefix_style)
@@ -130,7 +129,7 @@ def ask_question(
         style.menu.instruction_multi if question.multiselect else style.menu.instruction_single
     )
 
-    if choices and instruction:
+    if resolved.has_choices and instruction:
         header.append("  ")
         header.append(instruction, style=style.menu.instruction_style)
 
@@ -140,10 +139,16 @@ def ask_question(
 
     console.print(header)
 
-    if choices:
-        return _interactive_choice(question, answers, default_value, style, choices)
+    if resolved.has_choices:
+        return _interactive_choice(
+            question,
+            answers,
+            resolved.default_value,
+            style,
+            resolved.choices,
+        )
 
-    return _prompt_for_text(question, default_value, answers, style)
+    return _prompt_for_text(question, resolved.default_value, answers, style)
 
 
 def confirm_overwrite(path: Path, *, style: Style) -> bool:
@@ -180,6 +185,7 @@ def _interactive_choice(
 
     value_to_label = dict(choices)
     current_default = default_value
+    processor = AnswerProcessor(question, answers)
 
     while True:
         if supports_live_interaction():
@@ -194,10 +200,9 @@ def _interactive_choice(
                 style=style,
             ).ask()
 
-        processed = _apply_parser(question, selection, answers)
         raw_selection = selection if isinstance(selection, str) else str(selection)
         try:
-            _run_validator(question, processed, answers, raw_selection)
+            processed = processor.process(selection, raw=raw_selection)
             _print_choice_summary(question, selection, value_to_label, style)
         except ValueError as error:
             _print_error(error, style)
@@ -213,6 +218,8 @@ def _prompt_for_text(
     answers: dict[str, DefaultValue],
     style: Style,
 ) -> DefaultValue:
+    processor = AnswerProcessor(question, answers)
+
     while True:
         if supports_live_interaction():
             session: PromptSession[str] = PromptSession()
@@ -244,8 +251,7 @@ def _prompt_for_text(
             parser_input = stripped
 
         try:
-            candidate = _apply_parser(question, candidate, answers, parser_input)
-            _run_validator(question, candidate, answers, parser_input)
+            candidate = processor.process(candidate, raw=parser_input)
             display_value = parser_input or str(candidate)
 
             if supports_live_interaction():
@@ -565,6 +571,7 @@ class FallbackChoicePrompt:
         )
         self.default_list = _fallback_default_values(question, default_value)
         self.value_map, self.label_map, self.index_map = _fallback_lookup_maps(self.choices)
+        self.processor = AnswerProcessor(question, answers)
 
     def ask(self) -> DefaultValue:
         if not self.choices:
@@ -584,11 +591,14 @@ class FallbackChoicePrompt:
             if candidate is None:
                 continue
 
-            processed = _apply_parser(self.question, candidate, self.answers, raw=str(candidate))
             raw_value = self._raw_value(response, candidate)
 
             try:
-                _run_validator(self.question, processed, self.answers, raw_value)
+                processed = self.processor.process(
+                    candidate,
+                    raw=str(candidate),
+                    validator_raw=raw_value,
+                )
             except ValueError as error:
                 _print_error(error, self.style)
             else:
@@ -828,38 +838,7 @@ def _placeholder_key_bindings(default_text: str) -> KeyBindings:
 def _apply_cli_answer(
     question: Question, value: DefaultValue, answers: dict[str, DefaultValue]
 ) -> DefaultValue:
-    raw_value = value
-
-    if question.multiselect:
-        if isinstance(value, (list, tuple, set)):
-            values = [str(item) for item in value]
-        else:
-            values = [str(value)]
-
-        raw_value = ", ".join(values)
-    else:
-        values = [str(value)]
-
-    choices = question.resolve_choices(answers)
-    if choices:
-        allowed = {choice for choice, _label in choices}
-        if question.multiselect:
-            invalid = [item for item in values if item not in allowed]
-            if invalid:
-                raise ValueError(f"invalid choice(s): {', '.join(invalid)}")
-        elif values[0] not in allowed:
-            raise ValueError(f"invalid choice: {values[0]}")
-
-    processed: DefaultValue
-
-    if question.multiselect:
-        processed = values
-    else:
-        processed = _apply_parser(question, value, answers, raw=str(value))
-
-    _run_validator(question, processed, answers, raw=str(raw_value))
-
-    return processed
+    return AnswerProcessor(question, answers).process_cli(value)
 
 
 def _apply_parser(
@@ -868,62 +847,16 @@ def _apply_parser(
     answers: AnswerMap,
     raw: str | None = None,
 ) -> DefaultValue:
-    if question.parser and not question.multiselect:
-        raw_value = raw if raw is not None else str(value)
-        return question.parser(raw_value, answers)
-
-    return value
+    return apply_parser(question, value, answers, raw=raw)
 
 
 def _run_validator(
     question: Question,
     value: DefaultValue,
-    answers: dict[str, DefaultValue],
+    answers: AnswerMap,
     raw: str | None = None,
 ) -> None:
-    if not question.validators:
-        return
-
-    candidate_answers = dict(answers)
-    candidate_answers[question.key] = value
-    raw_value = raw if raw is not None else str(value)
-
-    for validator in question.validators:
-        if _validator_accepts_answers(validator):
-            valid, message = validator(raw_value, candidate_answers)
-        else:
-            valid, message = validator(raw_value)  # pyrefly: ignore[bad-argument-count]
-
-        if not valid:
-            raise ValueError(message or "invalid value.")
-
-
-def _validator_accepts_answers(validator: ValidatorType) -> TypeGuard[ContextValidatorFn]:
-    try:
-        signature = inspect.signature(validator)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"failed to inspect validator: {error}") from error
-
-    parameters = tuple(signature.parameters.values())
-    positional = tuple(
-        parameter
-        for parameter in parameters
-        if parameter.kind
-        in {
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        }
-    )
-    has_varargs = any(
-        parameter.kind is inspect.Parameter.VAR_POSITIONAL for parameter in parameters
-    )
-
-    if has_varargs or len(positional) >= 2:
-        return True
-    if len(positional) == 1:
-        return False
-
-    raise ValueError("validator must accept value or value and answers.")
+    run_validator(question, value, answers, raw=raw)
 
 
 def _choice_label(value: str, label: str | None) -> str:
