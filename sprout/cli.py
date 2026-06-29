@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
-from interfacy.appearance.layouts import InterfacyLayout
 from interfacy.argparse_backend.argument_parser import ArgumentParser, namespace_to_dict
 from jinja2 import Environment
 from jinja2.ext import Extension
@@ -1080,14 +1079,12 @@ def _build_cli_parser(
     *,
     help_note: str | None = None,
 ) -> ArgumentParser:
-    layout = InterfacyLayout(include_metavar_in_flag_display=True)
     description = "Generate a project from a sprout manifest."
     if help_note:
         description = f"{description}\n\n{help_note}"
     parser = ArgumentParser(
         prog="sprout",
         description=description,
-        help_layout=layout,
     )
     parser.add_argument(
         "template",
