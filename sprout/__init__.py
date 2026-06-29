@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sprout.cli import Manifest, execute_manifest
+from sprout.cli import Manifest, ManifestContext, execute_manifest
 from sprout.extensions import CurrentYearExtension, GitDefaultsExtension, build_environment
 from sprout.project.actions import (
     GitPostActionResult,
@@ -64,6 +64,7 @@ __all__ = [
     "GitPostActionResult",
     "InlineStyle",
     "Manifest",
+    "ManifestContext",
     "MenuStyle",
     "PromptStyle",
     "Question",

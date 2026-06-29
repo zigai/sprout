@@ -58,19 +58,19 @@ def test_main_honors_should_skip_file(make_template: MakeTemplate, tmp_path: Pat
 def test_main_supports_apply_hook(make_template: MakeTemplate, tmp_path: Path) -> None:
     template_root = make_template(
         """
-        from pathlib import Path
+        from sprout.cli import render_templates
 
         questions = []
 
-        def apply(env, template_dir: Path, destination: Path, answers, render_templates):
+        def apply(context):
             created = render_templates(
-                env,
-                template_dir,
-                destination,
-                answers,
+                context.env,
+                context.template_dir,
+                context.destination,
+                context.answers,
                 render_paths=True,
             )
-            extra = destination / "EXTRA.txt"
+            extra = context.destination / "EXTRA.txt"
             extra.write_text("extra\\n", encoding="utf-8")
             created.append(extra)
             return created

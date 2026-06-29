@@ -148,43 +148,30 @@ def test_render_templates_rejects_absolute_rendered_path(tmp_path: Path) -> None
     assert not absolute_name.with_suffix(".txt").exists()
 
 
-def test_invoke_apply_injects_arguments_and_normalises_result(tmp_path: Path) -> None:
-    environment = Environment()
-    template_dir = tmp_path / "template"
-    template_dir.mkdir()
-    destination = tmp_path / "dest"
-    destination.mkdir()
-
-    answers = {"name": "demo"}
-    style = Style()
+def test_invoke_apply_uses_manifest_context_and_normalises_result(tmp_path: Path) -> None:
     context = ManifestContext(
-        env=environment,
-        template_dir=template_dir,
+        env=Environment(),
+        template_dir=tmp_path,
         template_root=tmp_path,
-        destination=destination,
-        answers=answers,
-        style=style,
+        destination=tmp_path,
+        answers={"name": "demo"},
+        style=Style(),
     )
 
-    def apply_fn(env: Environment, destination: Path, answers: dict[str, object]) -> str:
-        assert env is environment
-        assert destination.exists()
-        assert answers["name"] == "demo"
+    def apply_fn(context: ManifestContext) -> Path:
+        assert context.answers["name"] == "demo"
 
-        return "README.md"
+        return context.destination / "README.md"
 
-    result = _invoke_apply(
-        apply_fn,
-        context=context,
-    )
+    result = _invoke_apply(apply_fn, context=context)
 
-    assert result == ["README.md"]
+    assert result == [tmp_path / "README.md"]
 
 
 def test_invoke_apply_rejects_invalid_return_type(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="must return None, a path, or a sequence"):
         _invoke_apply(
-            lambda: 5,
+            lambda context: 5,
             context=ManifestContext(
                 env=Environment(),
                 template_dir=tmp_path,
@@ -196,11 +183,11 @@ def test_invoke_apply_rejects_invalid_return_type(tmp_path: Path) -> None:
         )
 
 
-def test_invoke_apply_wraps_type_error(tmp_path: Path) -> None:
+def test_invoke_apply_rejects_unsupported_required_parameter(tmp_path: Path) -> None:
     def apply_fn(required: str) -> None:
         raise AssertionError(f"unexpected argument: {required}")
 
-    with pytest.raises(SystemExit, match="failed to run apply"):
+    with pytest.raises(SystemExit, match="must accept exactly one parameter: context"):
         _invoke_apply(
             apply_fn,
             context=ManifestContext(
@@ -220,7 +207,7 @@ def test_execute_manifest_with_apply_returning_none(tmp_path: Path) -> None:
 
     manifest = Manifest(
         questions=[],
-        apply=lambda **_kwargs: None,
+        apply=lambda context: None,
         template_dir="template",
     )
     destination = tmp_path / "dest"

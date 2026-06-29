@@ -63,5 +63,6 @@ def test_manifest_skip_rejects_non_bool_result() -> None:
     skip = ManifestReader(vars(module)).skip()
 
     assert skip is not None
+
     with pytest.raises(SystemExit, match="must return a bool"):
         skip("README.md", {})
