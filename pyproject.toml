@@ -53,17 +53,6 @@ sprout = "sprout.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.envs.test]
-features = ["test"]
-installer = "uv"
-
-[[tool.hatch.envs.test.matrix]]
-python = ["3.12", "3.13"]
-
-[tool.hatch.envs.test.scripts]
-test = "pytest {args}"
-cov = "coverage run -m pytest {args}"
-
 [tool.hatch.build.targets.wheel]
 packages = ["sprout"]
 
@@ -251,3 +240,10 @@ known-first-party = ["sprout", "tests"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.uv]
+default-groups = ["test"]
+
+[dependency-groups]
+test = ["pytest>=9.0.3", "coverage>=7.14.1"]
+dev = [{include-group = "test"}, "ruff==0.15.16", "pre-commit>=4.6.0", "pyrefly>=1.0.0", "codespell>=2.4.2", "rattle-lint>=2.5.1"]
