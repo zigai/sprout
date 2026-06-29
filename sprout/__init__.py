@@ -2,6 +2,32 @@ from __future__ import annotations
 
 from sprout.cli import Manifest, execute_manifest
 from sprout.extensions import CurrentYearExtension, GitDefaultsExtension, build_environment
+from sprout.project.actions import (
+    GitPostActionResult,
+    create_github_repo,
+    create_initial_commit,
+    ensure_git_repo,
+    has_git_commits,
+    run_git_post_actions,
+)
+from sprout.project.github import (
+    GitHubRepository,
+    github_install_source,
+    github_repository_target,
+    github_repository_url,
+    is_github_repository_url,
+    parse_github_repository_url,
+    repository_git_url,
+)
+from sprout.project.licenses import (
+    COMMON_LICENSE_CHOICES,
+    NO_LICENSE,
+    SPDX_LICENSE_CHOICES,
+    UNLICENSED_LICENSE_VALUE,
+    package_license_value,
+    render_license_text,
+    should_skip_license_file,
+)
 from sprout.prompt import (
     ask_question,
     collect_answers,
@@ -17,15 +43,25 @@ from sprout.validators import (
     ValidatorAnswers,
     ValidatorFn,
     ValidatorType,
+    validate_github_repository_url,
+    validate_npm_package_name,
+    validate_repository_name,
     validate_repository_url,
+    validate_semver,
 )
 
 __all__ = [
+    "COMMON_LICENSE_CHOICES",
+    "NO_LICENSE",
+    "SPDX_LICENSE_CHOICES",
+    "UNLICENSED_LICENSE_VALUE",
     "YES_NO_CHOICES",
     "ContextValidatorFn",
     "CurrentYearExtension",
     "ErrorStyle",
     "GitDefaultsExtension",
+    "GitHubRepository",
+    "GitPostActionResult",
     "InlineStyle",
     "Manifest",
     "MenuStyle",
@@ -42,8 +78,26 @@ __all__ = [
     "collect_answers",
     "confirm_overwrite",
     "console",
+    "create_github_repo",
+    "create_initial_commit",
+    "ensure_git_repo",
     "execute_manifest",
+    "github_install_source",
+    "github_repository_target",
+    "github_repository_url",
+    "has_git_commits",
+    "is_github_repository_url",
+    "package_license_value",
+    "parse_github_repository_url",
     "parse_yes_no",
+    "render_license_text",
+    "repository_git_url",
+    "run_git_post_actions",
+    "should_skip_license_file",
     "supports_live_interaction",
+    "validate_github_repository_url",
+    "validate_npm_package_name",
+    "validate_repository_name",
     "validate_repository_url",
+    "validate_semver",
 ]
