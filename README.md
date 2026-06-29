@@ -1,40 +1,60 @@
 # sprout
 
-A Jinja2 project generator with Python-based configuration
+A Jinja2 project generator with Python-based configuration.
 
 ## Installation
 
-  ```bash
-  uv tool install "git+https://github.com/zigai/sprout.git"
-  ```
+```bash
+uv tool install "git+https://github.com/zigai/sprout.git"
+```
 
-  ```bash
-  pip install "git+https://github.com/zigai/sprout.git"
-  ```
+```bash
+pip install "git+https://github.com/zigai/sprout.git"
+```
+
+## Usage
+
+```bash
+sprout <template> <destination> [--force] [--<question-flag> <value> ...]
+```
+
+`template` can be a local directory, a Git URL, or an `owner/repo` GitHub shorthand. The template
+root must contain a `sprout.py` manifest.
+
+Sprout reads template questions and exposes them as CLI flags. Provide answers as flags to skip
+interactive prompts for those questions.
+
+```bash
+sprout ./my-template ./generated-project --project-name demo
+sprout zigai/python-project-template ./demo --force
+```
+
+Multiselect question flags can be passed more than once:
+
+```bash
+sprout ./my-template ./generated-project --workflow tests --workflow lint
+```
 
 ## CLI help
 
-Sprout reads template questions and exposes them as CLI flags.
+Use `sprout --help` for base CLI help.
+
+```text
+usage: sprout [--help] [--force] TEMPLATE DESTINATION
+
+Generate a project from a sprout manifest.
+
+positional arguments:
+  TEMPLATE                    path or git repository containing a sprout.py manifest
+  DESTINATION                 target directory for the generated project
+
+options:
+  --help                      Show this help message and exit
+  --force                     overwrite files in the destination directory if they already exist
+```
 
 Use `sprout <template> --help` to show template-specific flags with best-effort question resolution.
 For destination-aware question resolution, use `sprout <template> <destination> --help`.
-
-Provide answers as flags to skip prompts; those questions won't appear in the TUI.
-
-```text
-usage: sprout [-h] [--force] [--<question-flag> <value> ...] template destination
-
-generate a project from a sprout manifest (questions with optional apply)
-
-positional arguments:
-  template     path or git repository containing a sprout.py manifest
-  destination  target directory for the generated project
-
-options:
-  -h, --help   show this help message and exit
-  --force      overwrite files in the destination directory if they already exist
-  --<question-flag>  answer a template question and skip the prompt
-```
 
 ## `sprout.py` file
 
@@ -49,19 +69,28 @@ Define **one** of:
 * A sequence of `sprout.Question`:
 
   ```python
-  questions: Sequence[sprout.Question]
+  import sprout
+
+  questions: list[sprout.Question] = [
+      sprout.Question(key="project_name", prompt="Project name"),
+  ]
   ```
 
 * A callable that returns a sequence of `Question`:
 
   ```python
-  from jinja2 import Environment
   from pathlib import Path
-  from typing import Sequence
 
-  def questions(env: Environment, destination: Path) -> Sequence[Question]:
-      ...
+  from jinja2 import Environment
+
+  from sprout import Question
+
+  def questions(env: Environment, destination: Path) -> list[Question]:
+      return [Question(key="project_name", prompt="Project name")]
   ```
+
+Question keys are converted to CLI flags by replacing underscores with dashes, so
+`project_name` becomes `--project-name`.
 
 ### Conditional questions
 
@@ -110,6 +139,25 @@ questions = [
 ]
 ```
 
+The collected answer is a `bool`.
+
+### Parsers and validators
+
+Use `parser` to convert text answers and `validators` to reject invalid input. Validators can accept
+`value` or `value, answers` and return `(is_valid, message)`.
+
+```python
+from sprout import Question, validate_repository_url
+
+questions = [
+    Question(
+        key="repository_url",
+        prompt="Repository URL",
+        validators=[validate_repository_url],
+    ),
+]
+```
+
 ### `template_dir` (optional)
 
 Path to the templates directory. Relative paths resolve from the repository root. Default: `template`.
@@ -119,7 +167,11 @@ Path to the templates directory. Relative paths resolve from the repository root
 Function to skip rendering or copying specific files. `relative_path` is relative to `template_dir`.
 
 ```python
-def should_skip_file(relative_path: str, answers: dict[str, Any]) -> bool: ...
+from typing import Any
+
+
+def should_skip_file(relative_path: str, answers: dict[str, Any]) -> bool:
+    return relative_path == "LICENSE.jinja" and answers.get("copyright_license") == "None"
 ```
 
 ### `style` (optional)
@@ -132,17 +184,59 @@ A sequence of Jinja2 `Extension` subclasses to add to the environment.
 
 ### `title` (optional)
 
-A string to print before prompting, or a callable that returns a string.
+A string to print before prompting, or a callable that accepts one `context` parameter
+(`sprout.ManifestContext`) and returns a string or `None`.
 
-### `apply()` (optional)
+```python
+from sprout import ManifestContext
 
-Custom generation logic.
 
-* If omitted: sprout renders all files from `template_dir` to the destination, with Jinja rendering enabled for files ending in `.jinja` and for relative paths.
-* If provided: the function may request any of these parameters by name: `env`, `template_dir`, `template_root`, `destination`, `answers`, `style`, `console`, `render_templates`.
+def title(context: ManifestContext) -> str:
+    return f"Generating project in {context.destination}"
+```
+
+### `apply(context)` (optional)
+
+Custom generation logic. If omitted, sprout renders all files from `template_dir` to the destination,
+with Jinja rendering enabled for files ending in `.jinja` and for relative paths.
+
+If provided, `apply` must accept one `context` parameter (`sprout.ManifestContext`). It may return
+`None`, a path, or a sequence of paths. Returned paths are shown in the generation summary.
+
+`ManifestContext` contains:
+
+* `env`: the configured Jinja2 `Environment`
+* `template_dir`: the resolved template directory
+* `template_root`: the template repository/directory root
+* `destination`: the target directory
+* `answers`: answers keyed by question key (empty when used by `title`, populated before `apply`)
+* `style`: the active `sprout.Style`
+
+```python
+from pathlib import Path
+
+from sprout import ManifestContext, render_templates
+
+
+def apply(context: ManifestContext) -> list[Path]:
+    created = render_templates(
+        context.env,
+        context.template_dir,
+        context.destination,
+        context.answers,
+        render_paths=True,
+    )
+    extra = context.destination / "EXTRA.txt"
+    extra.write_text("extra\n", encoding="utf-8")
+    created.append(extra)
+    return created
+```
 
 ## Minimal example
+
 ```python
+from typing import Any
+
 from sprout import Question
 
 questions = [
@@ -151,10 +245,9 @@ questions = [
 
 template_dir = "template"
 
+
 def should_skip_file(relative_path: str, answers: dict[str, Any]) -> bool:
-    if relative_path == "LICENSE.jinja" and answers.get("copyright_license") == "None":
-        return True
-    return False
+    return relative_path == "LICENSE.jinja" and answers.get("copyright_license") == "None"
 ```
 
 ## Advanced example
