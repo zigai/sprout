@@ -90,9 +90,9 @@ LICENSE_TEMPLATES: dict[str, Template] = {
 
 
 def package_license_value(
-    license_name: object, *, none_value: str = UNLICENSED_LICENSE_VALUE
+    license_name: str | None, *, none_value: str = UNLICENSED_LICENSE_VALUE
 ) -> str:
-    selected = str(license_name or NO_LICENSE)
+    selected = NO_LICENSE if not license_name else f"{license_name}"
     return none_value if selected == NO_LICENSE else selected
 
 

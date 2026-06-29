@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from interfacy.argparse_backend.argument_parser import ArgumentParser, namespace_to_dict
 from jinja2 import Environment
@@ -125,7 +126,7 @@ class CLIInvocation:
 class ManifestReader:
     values: Mapping[str, object]
 
-    def optional(self, name: str) -> object | None:
+    def optional(self, name: str) -> Any | None:  # noqa: ANN401 - sprout.py entries are user-defined.
         return self.values.get(name)
 
     def questions(self) -> QuestionsSource:
@@ -716,7 +717,7 @@ def _invoke_apply(
     return _normalise_apply_result(result)
 
 
-def _normalise_apply_result(result: object) -> CreatedPaths:
+def _normalise_apply_result(result: Any) -> CreatedPaths:  # noqa: ANN401 - apply hooks are user-defined.
     if result is None:
         return None
     if isinstance(result, (str, Path)):
@@ -863,7 +864,7 @@ def _validate_questions_signature(questions: Callable[..., object]) -> None:
         )
 
 
-def _validate_questions_sequence(value: object) -> Sequence[Question]:
+def _validate_questions_sequence(value: Any) -> Sequence[Question]:  # noqa: ANN401 - manifests are user-defined.
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         raise SystemExit("questions must be a sequence of Question instances.")
 

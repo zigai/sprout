@@ -5,7 +5,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from sprout.project.github import github_repository_target, is_github_repository_url
 
@@ -13,7 +13,7 @@ GitHubVisibility = Literal["private", "public"]
 
 
 class ConsoleLike(Protocol):
-    def print(self, *objects: object) -> None: ...
+    def print(self, *objects: Any) -> None: ...  # noqa: ANN401 - Rich renderables are dynamic.
 
 
 @dataclass(frozen=True)
@@ -137,6 +137,7 @@ def create_initial_commit(
             or "unknown error"
         )
         output.print(f"[yellow]Failed to inspect staged changes: {details}[/yellow]")
+
         return has_git_commits(destination, git_executable=git_executable)
 
     return _commit_staged_changes(
@@ -268,7 +269,8 @@ def run_git_post_actions(
 ) -> GitPostActionResult:
     output = _resolve_console(console)
     if bool(answers.get(create_github_repo_key)):
-        if not is_github_repository_url(answers.get(repository_url_key)):
+        repository_url = answers.get(repository_url_key)
+        if not isinstance(repository_url, str) or not is_github_repository_url(repository_url):
             output.print(
                 "[yellow]Repository URL is not a GitHub URL; gh will use the repo name.[/yellow]"
             )

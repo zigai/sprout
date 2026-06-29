@@ -57,7 +57,7 @@ def parse_github_repository_url(value: str) -> GitHubRepository | None:
     return None
 
 
-def is_github_repository_url(value: object) -> bool:
+def is_github_repository_url(value: str | None) -> bool:
     return isinstance(value, str) and parse_github_repository_url(value) is not None
 
 
