@@ -1118,6 +1118,7 @@ def _build_cli_parser(
             choices = question.resolve_choices({})
             if choices:
                 choice_values = [value for value, _label in choices]
+                help_text = f"{help_text} (choices: {', '.join(choice_values)})"
 
         if question.multiselect:
             parser.add_argument(
