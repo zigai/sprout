@@ -206,6 +206,29 @@ def test_default_placeholder_bindings_own_default_text() -> None:
     assert buffer.text == "emo"
 
 
+def test_prompt_for_text_accepts_empty_string_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    errors: list[str] = []
+    summaries: list[str] = []
+
+    monkeypatch.setattr("sprout.prompt.supports_live_interaction", lambda: False)
+    monkeypatch.setattr("sprout.prompt.console.input", lambda _prompt: "")
+    monkeypatch.setattr(
+        "sprout.prompt._print_error", lambda message, _style: errors.append(str(message))
+    )
+    monkeypatch.setattr(
+        "sprout.prompt._print_text_summary", lambda value, _style: summaries.append(value)
+    )
+
+    question = Question(key="description", prompt="Description")
+    result = _prompt_for_text(question, "", {}, Style())
+
+    assert result == ""
+    assert summaries == [""]
+    assert errors == []
+
+
 def test_prompt_for_text_noninteractive_retries_until_valid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

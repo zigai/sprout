@@ -62,15 +62,15 @@ def collect_answers(
             raw_value = provided[question.key]
             try:
                 answers[question.key] = AnswerProcessor(question, answers).process_cli(raw_value)
-            except ValueError as error:
-                raise SystemExit(f"{question.key}: {error}") from error
+            except ValueError as e:
+                raise SystemExit(f"{question.key}: {e}") from e
 
             continue
 
         try:
             should_ask = question.should_ask(answers)
-        except (TypeError, ValueError) as error:
-            raise SystemExit(f"{question.key}: {error}") from error
+        except (TypeError, ValueError) as e:
+            raise SystemExit(f"{question.key}: {e}") from e
 
         if not should_ask:
             continue
@@ -204,8 +204,8 @@ def _interactive_choice(
         try:
             processed = processor.process(selection, raw=raw_selection)
             _print_choice_summary(question, selection, value_to_label, style)
-        except ValueError as error:
-            _print_error(error, style)
+        except ValueError as e:
+            _print_error(e, style)
 
             current_default = selection
         else:
@@ -240,7 +240,7 @@ def _prompt_for_text(
         stripped = response.strip()
 
         if not stripped:
-            if default_value in (None, "", []):
+            if default_value in (None, []):
                 _print_error("Please provide a value.", style)
                 continue
 
@@ -258,8 +258,8 @@ def _prompt_for_text(
                 _highlight_prompt_line(display_value, style)
             else:
                 _print_text_summary(display_value, style)
-        except ValueError as error:
-            _print_error(error, style)
+        except ValueError as e:
+            _print_error(e, style)
         else:
             return candidate
 
@@ -599,8 +599,8 @@ class FallbackChoicePrompt:
                     raw=str(candidate),
                     validator_raw=raw_value,
                 )
-            except ValueError as error:
-                _print_error(error, self.style)
+            except ValueError as e:
+                _print_error(e, self.style)
             else:
                 return self._summarize_and_return(candidate, processed)
 
