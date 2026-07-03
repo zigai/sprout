@@ -1,6 +1,6 @@
 [project]
 name = "sprout"
-version = "1.1.0"
+version = "1.2.0"
 description = "A Jinja2 project generator with Python-based configuration"
 authors = [{ name = "zigai", email = "ziga.ivansek@gmail.com" }]
 license = { file = "LICENSE" }
