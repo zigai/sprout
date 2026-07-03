@@ -20,11 +20,15 @@ from sprout.cli import (
 from sprout.question import Question
 
 
-def _prepared_template(questions: list[Question]) -> PreparedTemplate:
+def _prepared_template(
+    questions: list[Question],
+    *,
+    cli_boolean_style: str = "flags",
+) -> PreparedTemplate:
     return PreparedTemplate(
         template_src="template",
         template_dir=Path(),
-        manifest=Manifest(questions=questions),
+        manifest=Manifest(questions=questions, cli_boolean_style=cli_boolean_style),
         cleanup=lambda: None,
         questions=questions,
     )
@@ -128,6 +132,57 @@ def test_build_cli_parser_enforces_static_choices() -> None:
 
     with pytest.raises(SystemExit):
         parser.parse_known_args(["template", "dest", "--kind", "tool"])
+
+
+def test_build_cli_parser_defaults_yes_no_questions_to_boolean_flags() -> None:
+    parser = _build_cli_parser(
+        _prepared_template([Question.yes_no(key="include_license", prompt="Include license?")])
+    )
+
+    help_text = parser.format_help()
+    parsed_yes = parser.parse_args(["template", "dest", "--include-license"])
+    parsed_no = parser.parse_args(["template", "dest", "--no-include-license"])
+
+    assert parsed_yes.include_license == "yes"
+    assert parsed_no.include_license == "no"
+    assert "--include-license" in help_text
+    assert "--no-include-license" in help_text
+    assert "choices: yes, no" not in help_text
+
+
+def test_build_cli_parser_boolean_flags_are_mutually_exclusive() -> None:
+    parser = _build_cli_parser(
+        _prepared_template([Question.yes_no(key="include_license", prompt="Include license?")])
+    )
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["template", "dest", "--include-license", "--no-include-license"])
+
+
+def test_build_cli_parser_rejects_yes_no_value_in_boolean_flags_mode() -> None:
+    parser = _build_cli_parser(
+        _prepared_template([Question.yes_no(key="include_license", prompt="Include license?")])
+    )
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["template", "dest", "--include-license", "no"])
+
+
+def test_build_cli_parser_supports_manifest_yes_no_boolean_style() -> None:
+    parser = _build_cli_parser(
+        _prepared_template(
+            [Question.yes_no(key="include_license", prompt="Include license?")],
+            cli_boolean_style="yes-no",
+        )
+    )
+
+    help_text = parser.format_help()
+    parsed = parser.parse_args(["template", "dest", "--include-license", "no"])
+
+    assert parsed.include_license == "no"
+    assert "--include-license" in help_text
+    assert "--no-include-license" not in help_text
+    assert "choices: yes, no" in help_text
 
 
 def test_main_passes_cli_answers_to_run_generate(monkeypatch: pytest.MonkeyPatch) -> None:

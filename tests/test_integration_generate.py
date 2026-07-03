@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 
 from sprout.cli import main
-from tests.conftest import MakeTemplate
+from tests.conftest import TemplateFactory
 
 
 def test_main_generates_project_from_local_template(
-    make_template: MakeTemplate,
+    make_template: TemplateFactory,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -31,7 +31,7 @@ def test_main_generates_project_from_local_template(
     assert "  • README.md" in output
 
 
-def test_main_honors_should_skip_file(make_template: MakeTemplate, tmp_path: Path) -> None:
+def test_main_honors_should_skip_file(make_template: TemplateFactory, tmp_path: Path) -> None:
     template_root = make_template(
         """
         from sprout import Question
@@ -48,14 +48,35 @@ def test_main_honors_should_skip_file(make_template: MakeTemplate, tmp_path: Pat
     )
     destination = tmp_path / "generated"
 
-    exit_code = main([str(template_root), str(destination), "--include-license", "no"])
+    exit_code = main([str(template_root), str(destination), "--no-include-license"])
 
     assert exit_code == 0
     assert (destination / "README.md").read_text(encoding="utf-8") == "name=False\n"
     assert not (destination / "LICENSE").exists()
 
 
-def test_main_supports_apply_hook(make_template: MakeTemplate, tmp_path: Path) -> None:
+def test_main_supports_yes_no_cli_boolean_style(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        cli_boolean_style = "yes-no"
+        questions = [Question.yes_no(key="include_license", prompt="Include license?", default=True)]
+        """,
+        files={"template/README.md.jinja": "include_license={{ include_license }}\n"},
+    )
+    destination = tmp_path / "generated"
+
+    exit_code = main([str(template_root), str(destination), "--include-license", "no"])
+
+    assert exit_code == 0
+    assert (destination / "README.md").read_text(encoding="utf-8") == "include_license=False\n"
+
+
+def test_main_supports_apply_hook(make_template: TemplateFactory, tmp_path: Path) -> None:
     template_root = make_template(
         """
         from sprout.cli import render_templates

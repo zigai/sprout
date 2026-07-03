@@ -8,15 +8,10 @@ import pytest
 from jinja2 import Environment
 from jinja2.ext import Extension
 
-from sprout.cli import (
-    ManifestReader,
-    _load_manifest,
-    _load_manifest_module,
-    _resolve_questions,
-)
+from sprout.cli import ManifestReader, _load_manifest, _load_manifest_module, _resolve_questions
 from sprout.question import Question
 from sprout.style import Style
-from tests.conftest import MakeTemplate
+from tests.conftest import TemplateFactory
 
 
 class DummyExtension(Extension):
@@ -116,6 +111,22 @@ def test_manifest_template_dir_validation() -> None:
         ManifestReader(vars(module)).template_dir()
 
 
+def test_manifest_cli_boolean_style_defaults_to_flags() -> None:
+    module = ModuleType("manifest_module")
+
+    assert ManifestReader(vars(module)).cli_boolean_style() == "flags"
+
+
+def test_manifest_cli_boolean_style_validation() -> None:
+    module = ModuleType("manifest_module")
+    module.cli_boolean_style = "yes-no"
+    assert ManifestReader(vars(module)).cli_boolean_style() == "yes-no"
+
+    module.cli_boolean_style = "both"
+    with pytest.raises(SystemExit, match="must be 'flags' or 'yes-no'"):
+        ManifestReader(vars(module)).cli_boolean_style()
+
+
 def test_resolve_questions_validates_shape() -> None:
     env = Environment()
     destination = Path()
@@ -156,7 +167,7 @@ def test_load_manifest_module_supports_local_imports(tmp_path: Path) -> None:
     assert str(root) not in sys.path
 
 
-def test_load_manifest_happy_path(make_template: MakeTemplate) -> None:
+def test_load_manifest_happy_path(make_template: TemplateFactory) -> None:
     template_root = make_template(
         """
         from sprout import Question, Style
@@ -164,6 +175,7 @@ def test_load_manifest_happy_path(make_template: MakeTemplate) -> None:
         questions = [Question(key="name", prompt="Name")]
         style = Style()
         template_dir = "template"
+        cli_boolean_style = "yes-no"
 
         def should_skip_file(relative_path, answers):
             return False
@@ -175,11 +187,12 @@ def test_load_manifest_happy_path(make_template: MakeTemplate) -> None:
     assert manifest.style is not None
     assert isinstance(manifest.style, Style)
     assert manifest.template_dir == "template"
+    assert manifest.cli_boolean_style == "yes-no"
     assert manifest.skip is not None
     assert not manifest.skip("README.md.jinja", {})
 
 
-def test_load_manifest_rejects_invalid_apply(make_template: MakeTemplate) -> None:
+def test_load_manifest_rejects_invalid_apply(make_template: TemplateFactory) -> None:
     template_root = make_template(
         """
         from sprout import Question

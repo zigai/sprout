@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, Literal
 
 from interfacy.argparse_backend.argument_parser import ArgumentParser, namespace_to_dict
 from jinja2 import Environment
@@ -22,7 +22,7 @@ from rich.text import Text
 
 from sprout.extensions import build_environment
 from sprout.prompt import ask_question, collect_answers, console, supports_live_interaction
-from sprout.question import AnswerMap, DefaultValue, Question
+from sprout.question import YES_NO_CHOICES, AnswerMap, DefaultValue, Question, parse_yes_no
 from sprout.style import Style
 
 
@@ -43,10 +43,11 @@ type TitleCallable = Callable[[ManifestContext], str | None]
 SkipPredicate = Callable[[str, AnswerMap], bool]
 QuestionsCallable = Callable[[Environment, Path], Sequence[Question]]
 QuestionsSource = Sequence[Question] | QuestionsCallable
+CliBooleanStyle = Literal["flags", "yes-no"]
 
 
 @dataclass(frozen=True)
-class TemplateCLIArgs:
+class TemplateCliArgs:
     """
     Hold normalized CLI arguments for template execution.
 
@@ -74,6 +75,7 @@ class Manifest:
         style (Style | None): Optional style overrides for prompt rendering.
         extensions (Sequence[type[Extension]] | None): Optional Jinja extension classes.
         title (str | TitleCallable | None): Optional static or dynamic title renderer.
+        cli_boolean_style (CliBooleanStyle): How yes/no questions are exposed as CLI options.
     """
 
     questions: QuestionsSource
@@ -83,6 +85,7 @@ class Manifest:
     style: Style | None = None
     extensions: Sequence[type[Extension]] | None = None
     title: str | TitleCallable | None = None
+    cli_boolean_style: CliBooleanStyle = "flags"
 
 
 @dataclass(frozen=True)
@@ -106,13 +109,13 @@ class PreparedTemplate:
 
 
 @dataclass(frozen=True)
-class CLIInvocation:
+class CliInvocation:
     template_src: str | None
     destination: Path | None
     help_requested: bool
 
     @classmethod
-    def from_args(cls, args: Sequence[str] | None) -> CLIInvocation:
+    def from_args(cls, args: Sequence[str] | None) -> CliInvocation:
         template_src, destination = _extract_template_destination(args)
 
         return cls(
@@ -222,6 +225,17 @@ class ManifestReader:
             raise SystemExit("template_dir in sprout.py must be a string or a Path.")
 
         return template_dir_obj
+
+    def cli_boolean_style(self) -> CliBooleanStyle:
+        style_obj = self.optional("cli_boolean_style")
+        if style_obj is None:
+            return "flags"
+        if style_obj == "flags":
+            return "flags"
+        if style_obj == "yes-no":
+            return "yes-no"
+
+        raise SystemExit("cli_boolean_style in sprout.py must be 'flags' or 'yes-no'.")
 
     def skip(self) -> SkipPredicate | None:
         skip_obj = self.optional("should_skip_file")
@@ -651,7 +665,7 @@ def _run_generate(
     prepared: PreparedTemplate | None,
 ) -> int:
     destination_path = Path(destination).expanduser().resolve()
-    args = TemplateCLIArgs(
+    args = TemplateCliArgs(
         template_src=template,
         destination=destination_path,
         force=force,
@@ -743,8 +757,8 @@ def _invoke_context_hook(
 def _validate_context_hook_signature(hook: Callable[..., object], hook_name: str) -> None:
     try:
         signature = inspect.signature(hook)
-    except (TypeError, ValueError) as error:
-        raise SystemExit(f"failed to inspect {hook_name}(): {error}") from error
+    except (TypeError, ValueError) as e:
+        raise SystemExit(f"failed to inspect {hook_name}(): {e}") from e
 
     parameters = tuple(signature.parameters.values())
     allowed_kinds = {
@@ -783,10 +797,10 @@ def _prepare_template_source(template_src: str) -> tuple[Path, Callable[[], None
             capture_output=True,
             text=True,
         )
-    except subprocess.CalledProcessError as error:  # pragma: no cover - external dependency
+    except subprocess.CalledProcessError as e:  # pragma: no cover - external dependency
         temp_dir_context.cleanup()
-        stderr = error.stderr.strip() if error.stderr else str(error)
-        raise SystemExit(f"failed to clone template from {url}: {stderr}") from error
+        stderr = e.stderr.strip() if e.stderr else str(e)
+        raise SystemExit(f"failed to clone template from {url}: {stderr}") from e
 
     return target_dir, temp_dir_context.cleanup
 
@@ -843,10 +857,10 @@ def _load_manifest_module(template_dir: Path, manifest_path: Path) -> ModuleType
 def _validate_questions_signature(questions: Callable[..., object]) -> None:
     try:
         signature = inspect.signature(questions)
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError) as e:
         raise SystemExit(
             "questions callable in sprout.py must accept (env, destination) parameters."
-        ) from error
+        ) from e
 
     parameters = tuple(signature.parameters.values())
     allowed_kinds = {
@@ -878,11 +892,11 @@ def _validate_questions_sequence(value: Any) -> Sequence[Question]:  # noqa: ANN
 def _validate_skip_signature(skip: Callable[..., object]) -> None:
     try:
         signature = inspect.signature(skip)
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError) as e:
         raise SystemExit(
             "should_skip_file in sprout.py must be a callable with "
             "(relative_path: str, answers) parameters."
-        ) from error
+        ) from e
 
     parameters = tuple(signature.parameters.values())
     allowed_kinds = {
@@ -916,6 +930,7 @@ def _load_manifest(template_dir: Path) -> Manifest:
         style=reader.style(),
         extensions=reader.extensions(),
         title=reader.title(),
+        cli_boolean_style=reader.cli_boolean_style(),
     )
 
 
@@ -1039,7 +1054,7 @@ def _load_questions_for_cli(template_src: str, destination: Path) -> PreparedTem
 
 
 def _prepare_template_for_cli(
-    invocation: CLIInvocation,
+    invocation: CliInvocation,
 ) -> tuple[PreparedTemplate | None, str | None]:
     if invocation.template_src and invocation.destination is not None:
         return _load_questions_for_cli(invocation.template_src, invocation.destination), None
@@ -1073,6 +1088,39 @@ def _flag_from_question_key(key: str) -> str:
     cleaned = cleaned.strip("-")
 
     return cleaned.lower() or "question"
+
+
+def _is_yes_no_question(question: Question) -> bool:
+    choices = question.resolve_choices({}) if not callable(question.choices) else None
+
+    return question.parser is parse_yes_no and list(choices or ()) == list(YES_NO_CHOICES)
+
+
+def _add_boolean_question_flags(
+    parser: ArgumentParser,
+    *,
+    flag: str,
+    dest: str,
+    help_text: str,
+) -> None:
+    negative_flag = f"--no-{flag.removeprefix('--')}"
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        flag,
+        dest=dest,
+        help=f"{help_text} (yes)",
+        default=argparse.SUPPRESS,
+        action="store_const",
+        const="yes",
+    )
+    group.add_argument(
+        negative_flag,
+        dest=dest,
+        help=f"{help_text} (no)",
+        default=argparse.SUPPRESS,
+        action="store_const",
+        const="no",
+    )
 
 
 def _build_cli_parser(
@@ -1114,6 +1162,19 @@ def _build_cli_parser(
 
         flag = f"--{_flag_from_question_key(question.key)}"
         help_text = _format_question_help(question)
+        if (
+            prepared.manifest.cli_boolean_style == "flags"
+            and not question.multiselect
+            and _is_yes_no_question(question)
+        ):
+            _add_boolean_question_flags(
+                parser,
+                flag=flag,
+                dest=dest,
+                help_text=help_text,
+            )
+            continue
+
         choice_values: list[str] | None = None
         if not callable(question.choices):
             choices = question.resolve_choices({})
@@ -1157,12 +1218,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args_list = list(argv) if argv is not None else None
     inspect_args = args_list if args_list is not None else sys.argv[1:]
-    invocation = CLIInvocation.from_args(inspect_args)
+    invocation = CliInvocation.from_args(inspect_args)
     prepared, help_note = _prepare_template_for_cli(invocation)
 
     parser = _build_cli_parser(prepared, help_note=help_note)
     try:
-        parsed, _unknown = parser.parse_known_args(args_list)
+        parsed = parser.parse_args(args_list)
         namespace = namespace_to_dict(parsed)
         template = namespace.get("template")
         destination_value = namespace.get("destination")
@@ -1193,7 +1254,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 __all__ = [
     "Manifest",
     "ManifestContext",
-    "TemplateCLIArgs",
+    "TemplateCliArgs",
     "ensure_destination",
     "execute_manifest",
     "generate",
