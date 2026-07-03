@@ -1,82 +1,53 @@
 # sprout
 
-Sprout is a project scaffolding tool for template authors who want the template logic to live in
-Python. Templates use Jinja2 for files, but the manifest is a Python file named `sprout.py`.
-That file defines the prompt model, defaults, validation, conditional behavior, optional Jinja
-extensions, and any custom generation work.
+Sprout is a Jinja2-based project generator with a Python manifest. Instead of configuring prompts in
+YAML, you write `sprout.py`:
 
-The command line stays simple:
+```python
+from sprout import Question
 
-```bash
-sprout <template> <destination>
+questions = [
+    Question(key="project_name", prompt="Project name"),
+]
 ```
 
-The template decides what else is available.
+That single manifest drives interactive prompts, CLI flags, validation and conditional questions.
+
+Template files go in `template/`; `.jinja` files are rendered, everything else
+is copied.
+
+Works with local templates, Git repos, or `owner/repo` GitHub shorthand.
+
+Every question becomes a CLI flag so you can script it too:
+
+```bash
+sprout <template-path> <project-path>
+sprout <template-path> <project-path> --project-name demo
+```
 
 ## Install
-
-As a standalone tool:
 
 ```bash
 uv tool install "git+https://github.com/zigai/sprout.git"
 ```
 
-Into the active environment:
-
-```bash
-pip install "git+https://github.com/zigai/sprout.git"
-```
-
 ## Usage
 
 ```bash
-sprout <template> <destination> [--force] [--<question-flag> <value> ...]
+sprout <template-path> <project-path> [--force] [--<question-flag> <value> ...] [--<boolean-flag> | --no-<boolean-flag>]
 ```
 
-`template` can be a local directory, a Git URL, or an `owner/repo` GitHub shorthand. The template
-root must contain a `sprout.py` manifest.
-
-Minimal examples:
+Pass values for question flags to skip those prompts:
 
 ```bash
-sprout ./template-repo ./new-project
-sprout ./template-repo ./new-project --project-name demo
+sprout <template-path> <project-path> --project-name demo
 ```
 
-Sprout reads template questions and exposes them as CLI flags. Provide answers as flags to skip
-interactive prompts for those questions. Repeat a multiselect flag to pass more than one value.
+Use `sprout <template-path> --help` to show template-specific flags.
 
-Base CLI help:
-
-```text
-usage: sprout [--help] [--force] TEMPLATE DESTINATION
-
-Generate a project from a sprout manifest.
-
-positional arguments:
-  TEMPLATE     path or git repository containing a sprout.py manifest
-  DESTINATION  target directory for the generated project
-
-options:
-  --help                        Show this help message and exit
-  --force                       overwrite files in the destination directory
-                                if they already exist
-```
-
-Use `sprout <template> --help` to show template-specific flags with best-effort question resolution.
-For destination-aware question resolution, use `sprout <template> <destination> --help`.
-
-## Template contract
+## Template structure
 
 The source root must contain `sprout.py`.
-
-```text
-template-repo/
-  sprout.py
-  template/
-    README.md.jinja
-    pyproject.toml.jinja
-```
 
 The only required name is `questions`.
 
@@ -88,8 +59,8 @@ questions = [
 ]
 ```
 
-Optional names are `template_dir`, `style`, `extensions`, `title`, `should_skip_file(...)`, and
-`apply(context)`.
+Optional names are `template_dir`, `style`, `extensions`, `title`, `cli_boolean_style`,
+`should_skip_file(...)`, and `apply(context)`.
 
 ## Question model
 
@@ -106,8 +77,7 @@ Question(
 )
 ```
 
-`key` is the answer dictionary key. It also becomes the CLI flag name after underscores are replaced
-with dashes:
+`key` is the answer dictionary key. It also becomes the CLI flag name.
 
 ```text
 project_name -> --project-name
@@ -130,9 +100,6 @@ questions = [
 ]
 ```
 
-Static choices are enforced by the generated CLI parser. Dynamic choices are resolved during the
-question flow.
-
 ## Multiselect
 
 ```python
@@ -151,7 +118,7 @@ questions = [
 From the CLI:
 
 ```bash
-sprout ./template-repo ./new-project --workflow tests --workflow lint
+sprout <template-path> <project-path> --workflow tests --workflow lint
 ```
 
 ## Booleans
@@ -170,11 +137,29 @@ questions = [
 ]
 ```
 
-Accepted text includes yes/no style answers. The stored value is a boolean.
+By default, yes/no questions are exposed as Boolean CLI flags:
+
+```bash
+sprout <template-path> <project-path> --git-init
+sprout <template-path> <project-path> --no-git-init
+```
+
+If a template should use explicit yes/no values instead, opt into that style in `sprout.py`:
+
+```python
+cli_boolean_style = "yes-no"
+```
+
+Then the CLI accepts values for yes/no questions:
+
+```bash
+sprout <template-path> <project-path> --git-init yes
+sprout <template-path> <project-path> --git-init no
+```
 
 ## Conditional flow
 
-`when` may be a boolean or a callable that receives the answers collected so far:
+`when` can be a boolean or a callable that receives the answers collected so far:
 
 ```python
 from sprout import Question
@@ -195,12 +180,10 @@ questions = [
 ]
 ```
 
-Put dependency questions first. Skipped questions are omitted from `answers`. If the caller provides
-an explicit CLI flag, that value is still used.
-
 ## Defaults, parsers, and validators
 
-Defaults may be static values or callables:
+Defaults can be static values or callables. Use `default=""` for a text prompt that should accept
+a blank answer.
 
 ```python
 from sprout import Question
@@ -237,9 +220,7 @@ When question definitions need runtime context, make `questions` callable:
 
 ```python
 from pathlib import Path
-
 from jinja2 import Environment
-
 from sprout import Question
 
 
@@ -263,10 +244,6 @@ Default rendering uses `template_dir`, or `template` when no directory is declar
 template_dir = "template"
 ```
 
-Files ending in `.jinja` are rendered with Jinja and written without the `.jinja` suffix. Other
-files are copied as-is. Relative paths are rendered too, so answers can shape generated directories
-and filenames.
-
 ## Skipping files
 
 `should_skip_file` receives a path relative to `template_dir` and the final answers:
@@ -278,8 +255,6 @@ from sprout import NO_LICENSE
 def should_skip_file(relative_path: str, answers: dict[str, object]) -> bool:
     return relative_path == "LICENSE.jinja" and answers.get("license") == NO_LICENSE
 ```
-
-Use this for optional files that can still live in the same template tree.
 
 ## Jinja environment
 
@@ -323,10 +298,8 @@ The title is evaluated before answers are collected. For prompt appearance, assi
 
 ## Custom generation
 
-Most templates should use the default renderer. Define `apply(context)` only when generation needs
+Most templates should use the default renderer, but you can define `apply(context)` when generation needs
 custom file creation, post-processing, or post-generation actions.
-
-If you still want the default renderer inside `apply`, call `render_templates(...)`:
 
 ```python
 from sprout import ManifestContext, render_templates
