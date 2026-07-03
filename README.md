@@ -1,6 +1,8 @@
 # sprout
 
-Sprout is a Jinja2-based project generator with a Python manifest. Instead of configuring prompts in
+Sprout is a Jinja2-based project generator with a Python manifest.
+
+Instead of configuring prompts in
 YAML, you write `sprout.py`:
 
 ```python
@@ -13,7 +15,7 @@ questions = [
 
 That single manifest drives interactive prompts, CLI flags, validation and conditional questions.
 
-Template files go in `template/`; `.jinja` files are rendered, everything else
+Template files go in `template/`. `.jinja` files are rendered, everything else
 is copied.
 
 Works with local templates, Git repos, or `owner/repo` GitHub shorthand.
@@ -318,9 +320,9 @@ def apply(context: ManifestContext):
 `apply` must accept exactly one `context` parameter. It may return `None`, one path, or a sequence of
 paths for the generated-files summary.
 
-## Example template
+## Examples
 
-See [python-project-template](https://github.com/zigai/python-project-template).
+- [python-project-template](https://github.com/zigai/python-project-template).
 
 ## License
 
