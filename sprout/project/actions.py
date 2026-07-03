@@ -12,7 +12,7 @@ from sprout.project.github import github_repository_target, is_github_repository
 GitHubVisibility = Literal["private", "public"]
 
 
-class ConsoleLike(Protocol):
+class SupportsConsolePrint(Protocol):
     def print(self, *objects: Any) -> None: ...  # noqa: ANN401 - Rich renderables are dynamic.
 
 
@@ -26,7 +26,7 @@ class GitPostActionResult:
 def ensure_git_repo(
     destination: Path,
     *,
-    console: ConsoleLike | None = None,
+    console: SupportsConsolePrint | None = None,
     initial_branch: str = "main",
 ) -> bool:
     output = _resolve_console(console)
@@ -93,7 +93,7 @@ def create_initial_commit(
     destination: Path,
     answers: Mapping[str, object] | None = None,
     *,
-    console: ConsoleLike | None = None,
+    console: SupportsConsolePrint | None = None,
     message: str = "chore: initialize project",
     author_name_key: str = "author_name",
     author_email_key: str = "author_email",
@@ -155,7 +155,7 @@ def _commit_staged_changes(
     destination: Path,
     answers: Mapping[str, object],
     *,
-    console: ConsoleLike,
+    console: SupportsConsolePrint,
     git_executable: str,
     message: str,
     author_name_key: str,
@@ -193,7 +193,7 @@ def create_github_repo(
     destination: Path,
     answers: Mapping[str, object] | None = None,
     *,
-    console: ConsoleLike | None = None,
+    console: SupportsConsolePrint | None = None,
     push: bool = False,
     repository_url_key: str = "repository_url",
     repo_name_key: str = "repo_name",
@@ -255,7 +255,7 @@ def run_git_post_actions(
     destination: Path,
     answers: Mapping[str, object],
     *,
-    console: ConsoleLike | None = None,
+    console: SupportsConsolePrint | None = None,
     create_github_repo_key: str = "create_github_repo",
     git_init_key: str = "git_init",
     repository_url_key: str = "repository_url",
@@ -329,7 +329,7 @@ def _normalise_visibility(value: str, *, default: GitHubVisibility) -> GitHubVis
     return default
 
 
-def _resolve_console(console: ConsoleLike | None) -> ConsoleLike:
+def _resolve_console(console: SupportsConsolePrint | None) -> SupportsConsolePrint:
     if console is not None:
         return console
 
@@ -339,9 +339,9 @@ def _resolve_console(console: ConsoleLike | None) -> ConsoleLike:
 
 
 __all__ = [
-    "ConsoleLike",
     "GitHubVisibility",
     "GitPostActionResult",
+    "SupportsConsolePrint",
     "create_github_repo",
     "create_initial_commit",
     "ensure_git_repo",

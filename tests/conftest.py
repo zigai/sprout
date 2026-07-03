@@ -8,7 +8,7 @@ from typing import Protocol
 import pytest
 
 
-class MakeTemplate(Protocol):
+class TemplateFactory(Protocol):
     def __call__(
         self,
         manifest_source: str,
@@ -17,7 +17,7 @@ class MakeTemplate(Protocol):
 
 
 @pytest.fixture
-def make_template(tmp_path: Path) -> MakeTemplate:
+def make_template(tmp_path: Path) -> TemplateFactory:
     counter = 0
 
     def _make(

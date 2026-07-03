@@ -112,8 +112,8 @@ class Question:
         if callable(self.when):
             try:
                 result = self.when(answers)
-            except Exception as error:
-                raise ValueError(f"failed to evaluate condition: {error}") from error
+            except Exception as e:
+                raise ValueError(f"failed to evaluate condition: {e}") from e
         else:
             result = self.when
 

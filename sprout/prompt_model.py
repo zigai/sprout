@@ -54,9 +54,7 @@ class AnswerProcessor:
     def process_cli(self, value: DefaultValue) -> DefaultValue:
         raw_value, values = self._normalise_cli_values(value)
         self._validate_cli_choices(values)
-
         processed = values if self.question.multiselect else self.parse(value, raw=str(value))
-
         self.validate(processed, raw=raw_value)
 
         return processed
@@ -134,8 +132,8 @@ def run_validator(
 def validator_accepts_answers(validator: ValidatorType) -> TypeGuard[ContextValidatorFn]:
     try:
         signature = inspect.signature(validator)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"failed to inspect validator: {error}") from error
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"failed to inspect validator: {e}") from e
 
     parameters = tuple(signature.parameters.values())
     positional = tuple(
