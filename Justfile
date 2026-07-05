@@ -1,11 +1,12 @@
 set positional-arguments
 set script-interpreter := ['uv', 'run', '--no-project', '--', 'python']
-@_:
-  just --list
+_:
+    @just help
 
 _require-uv:
   @uv --version > /dev/null || (echo "Please install uv: https://docs.astral.sh/uv/" && exit 1)
 
+# Check code for lint issues
 lint: _require-uv
   uv run --group dev ruff check .
 
@@ -69,6 +70,7 @@ test *args: _require-uv
       ])
       if result.returncode:
           raise SystemExit(result.returncode)
+# Build the project
 build: _require-uv
   uv build
 
@@ -101,7 +103,7 @@ check: lint coverage typecheck spell
 
 # list available recipes
 help:
-  just --list
+  @just --list
 
 alias fmt := format
 alias cov := coverage
