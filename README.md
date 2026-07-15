@@ -23,29 +23,53 @@ Works with local templates, Git repos, or `owner/repo` GitHub shorthand.
 Every question becomes a CLI flag so you can script it too:
 
 ```bash
-sprout <template-path> <project-path>
-sprout <template-path> <project-path> --project-name demo
+sprout new <template-path> <project-path>
+sprout new <template-path> <project-path> --project-name demo
 ```
 
 ## Install
 
 ```bash
-uv tool install "git+https://github.com/zigai/sprout.git"
+uv tool install sprout-template
 ```
 
 ## Usage
 
 ```bash
-sprout <template-path> <project-path> [--force] [--<question-flag> <value> ...] [--<boolean-flag> | --no-<boolean-flag>]
+sprout init [directory]
+sprout add <template-source> [--name <trusted-name>]
+sprout list
+sprout new <template> <project-path> [--force] [--<question-flag> <value> ...]
 ```
 
-Pass values for question flags to skip those prompts:
+`new` accepts a local template path, Git URL, `owner/repo` GitHub shorthand, or a trusted name added
+with `sprout add`. Pass values for question flags to skip those prompts:
 
 ```bash
-sprout <template-path> <project-path> --project-name demo
+sprout new <template-path> <project-path> --project-name demo
 ```
 
-Use `sprout <template-path> --help` to show template-specific flags.
+Use `sprout new <template> --help` to show template-specific flags.
+
+### Initialize a template
+
+Create a minimal `sprout.py` and `template/README.md.jinja` scaffold in the current directory:
+
+```bash
+sprout init
+```
+
+Pass a directory to initialize it elsewhere. Existing scaffold files are never overwritten.
+
+### Trusted templates
+
+Store a reusable name for any supported template source:
+
+```bash
+sprout add zigai/python-project-template --name python
+sprout new python ./my-project
+sprout list
+```
 
 ## Template structure
 
@@ -120,7 +144,7 @@ questions = [
 From the CLI:
 
 ```bash
-sprout <template-path> <project-path> --workflow tests --workflow lint
+sprout new <template-path> <project-path> --workflow tests --workflow lint
 ```
 
 ## Booleans
@@ -142,8 +166,8 @@ questions = [
 By default, yes/no questions are exposed as Boolean CLI flags:
 
 ```bash
-sprout <template-path> <project-path> --git-init
-sprout <template-path> <project-path> --no-git-init
+sprout new <template-path> <project-path> --git-init
+sprout new <template-path> <project-path> --no-git-init
 ```
 
 If a template should use explicit yes/no values instead, opt into that style in `sprout.py`:
@@ -155,8 +179,8 @@ cli_boolean_style = "yes-no"
 Then the CLI accepts values for yes/no questions:
 
 ```bash
-sprout <template-path> <project-path> --git-init yes
-sprout <template-path> <project-path> --git-init no
+sprout new <template-path> <project-path> --git-init yes
+sprout new <template-path> <project-path> --git-init no
 ```
 
 ## Conditional flow
