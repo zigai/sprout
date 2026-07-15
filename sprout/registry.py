@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 CONFIG_VERSION = 1
 type JsonScalar = None | bool | int | float | str
@@ -105,13 +105,14 @@ def normalize_template_source(source: str) -> str:
 
 
 def derive_template_name(source: str) -> str:
-    cleaned = source.strip().rstrip("/")
+    cleaned = source.strip().rstrip("/\\")
     if cleaned.startswith("git@") and ":" in cleaned:
         cleaned = cleaned.rsplit(":", maxsplit=1)[1]
     elif "://" in cleaned:
         cleaned = cleaned.split("?", maxsplit=1)[0].split("#", maxsplit=1)[0]
 
-    name = cleaned.rsplit("/", maxsplit=1)[-1].removesuffix(".git").strip()
+    source_path = PureWindowsPath(cleaned) if "\\" in cleaned else Path(cleaned)
+    name = source_path.name.removesuffix(".git").strip()
     if not name:
         raise SystemExit("could not derive a template name; provide --name.")
 

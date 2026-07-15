@@ -86,3 +86,7 @@ def test_template_source_normalization_and_name_derivation(tmp_path: Path) -> No
     assert derive_template_name("owner/repo") == "repo"
     assert derive_template_name("https://github.com/owner/repo.git") == "repo"
     assert derive_template_name("git@github.com:owner/repo.git") == "repo"
+
+
+def test_template_name_derivation_supports_windows_paths() -> None:
+    assert derive_template_name(r"C:\templates\local-template") == "local-template"
