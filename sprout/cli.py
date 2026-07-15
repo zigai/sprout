@@ -1212,6 +1212,33 @@ def _prepare_template_for_cli(
         return None, _HELP_PRELOAD_FALLBACK_NOTE
 
 
+def _registered_templates_for_new_help(
+    args: Sequence[str],
+    invocation: CliInvocation,
+) -> tuple[TrustedTemplate, ...] | None:
+    if (
+        not args
+        or args[0] != "new"
+        or not invocation.help_requested
+        or invocation.template_src is not None
+    ):
+        return None
+
+    return TemplateRegistry().entries()
+
+
+def _format_trusted_templates_help(templates: Sequence[TrustedTemplate]) -> str:
+    if not templates:
+        return "No trusted templates have been added. Use sprout add to add one."
+
+    entries = "\n".join(f"  {template.name}: {template.source}" for template in templates)
+    return f"Trusted templates added with sprout add:\n{entries}"
+
+
+def _capitalize_help_text(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
 def _format_question_help(question: Question) -> str:
     description = question.prompt
     if question.help:
@@ -1220,7 +1247,7 @@ def _format_question_help(question: Question) -> str:
     if question.multiselect:
         description = f"{description} (multiple values allowed)"
 
-    return description
+    return _capitalize_help_text(description)
 
 
 def _flag_from_question_key(key: str) -> str:
@@ -1268,6 +1295,7 @@ def _build_cli_parser(
     prepared: PreparedTemplate | None,
     *,
     help_note: str | None = None,
+    trusted_templates: Sequence[TrustedTemplate] | None = None,
 ) -> ArgumentParser:
     parser = ArgumentParser(
         prog="sprout",
@@ -1284,7 +1312,7 @@ def _build_cli_parser(
         "directory",
         nargs="?",
         default=".",
-        help="directory where the scaffold should be created",
+        help="Directory where the scaffold should be created",
     )
 
     add_parser = commands.add_parser(
@@ -1294,14 +1322,18 @@ def _build_cli_parser(
     )
     add_parser.add_argument(
         "source",
-        help="local path, Git URL, or GitHub owner/repo shorthand",
+        help="Local path, Git URL, or GitHub owner/repo shorthand",
     )
     add_parser.add_argument(
         "--name",
-        help="trusted template name; prompts when omitted",
+        help="Trusted template name; prompts when omitted",
     )
 
     new_description = "Generate a project from a Sprout manifest."
+    if trusted_templates is not None:
+        new_description = (
+            f"{new_description}\n\n{_format_trusted_templates_help(trusted_templates)}"
+        )
     if help_note:
         new_description = f"{new_description}\n\n{help_note}"
     new_parser = commands.add_parser(
@@ -1311,16 +1343,16 @@ def _build_cli_parser(
     )
     new_parser.add_argument(
         "template",
-        help="trusted name, local path, or Git repository containing sprout.py",
+        help="Trusted name, local path, or Git repository containing sprout.py",
     )
     new_parser.add_argument(
         "destination",
-        help="target directory for the generated project",
+        help="Target directory for the generated project",
     )
     new_parser.add_argument(
         "--force",
         action="store_true",
-        help="overwrite files in the destination directory if they already exist",
+        help="Overwrite files in the destination directory if they already exist",
     )
 
     commands.add_parser(
@@ -1461,9 +1493,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args_list = list(argv) if argv is not None else None
     inspect_args = args_list if args_list is not None else sys.argv[1:]
     invocation = CliInvocation.from_args(inspect_args)
+    trusted_templates = _registered_templates_for_new_help(inspect_args, invocation)
     prepared, help_note = _prepare_template_for_cli(invocation)
 
-    parser = _build_cli_parser(prepared, help_note=help_note)
+    parser = _build_cli_parser(
+        prepared,
+        help_note=help_note,
+        trusted_templates=trusted_templates,
+    )
     try:
         parsed = parser.parse_args(args_list)
         namespace = namespace_to_dict(parsed)

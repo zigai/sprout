@@ -63,7 +63,7 @@ def test_sanitize_question_key_and_flag_generation() -> None:
 def test_format_question_help_keeps_prompt_and_multiselect_note() -> None:
     question = Question(
         key="workflow",
-        prompt="Workflow",
+        prompt="workflow",
         help="Pick one",
         choices=[("tests", "Tests"), ("lint", "Lint")],
         multiselect=True,
@@ -74,6 +74,32 @@ def test_format_question_help_keeps_prompt_and_multiselect_note() -> None:
     assert "Workflow - Pick one" in message
     assert "choices:" not in message
     assert "multiple values allowed" in message
+
+
+@pytest.mark.parametrize(
+    ("args", "expected_help"),
+    [
+        (["init", "--help"], "[DIRECTORY]  Directory where the scaffold should be created"),
+        (["add", "--help"], "SOURCE       Local path, Git URL, or GitHub owner/repo shorthand"),
+        (["add", "--help"], "--name NAME           Trusted template name; prompts when omitted"),
+        (["new", "--help"], "TEMPLATE     Trusted name, local path, or Git repository containing"),
+        (["new", "--help"], "DESTINATION  Target directory for the generated project"),
+        (
+            ["new", "--help"],
+            "--force               Overwrite files in the destination directory if they",
+        ),
+    ],
+)
+def test_command_help_uses_aligned_sentence_case_descriptions(
+    args: list[str],
+    expected_help: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(args)
+
+    assert exit_info.value.code == 0
+    assert expected_help in capsys.readouterr().out
 
 
 def test_build_cli_parser_help_shows_choices_once(

@@ -167,6 +167,42 @@ def test_list_reports_empty_registry(
     assert "No trusted templates" in capsys.readouterr().out
 
 
+def test_new_help_lists_trusted_templates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    main(["add", "owner/zulu", "--name", "zulu"])
+    main(["add", "owner/alpha", "--name", "Alpha"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as help_exit:
+        main(["new", "--help"])
+
+    assert help_exit.value.code == 0
+    output = capsys.readouterr().out
+    assert "Trusted templates added with sprout add:" in output
+    assert output.index("Alpha: owner/alpha") < output.index("zulu: owner/zulu")
+
+
+def test_new_help_explains_how_to_add_trusted_templates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    with pytest.raises(SystemExit) as help_exit:
+        main(["new", "--help"])
+
+    assert help_exit.value.code == 0
+    assert (
+        "No trusted templates have been added. Use sprout add to add one."
+        in capsys.readouterr().out
+    )
+
+
 def test_registered_local_alias_generates_project(
     monkeypatch: pytest.MonkeyPatch,
     make_template: TemplateFactory,
