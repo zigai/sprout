@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "interfacy>=0.6.6",
+    "interfacy>=0.6.7",
     "jinja2>=3.0",
     "prompt-toolkit>=3.0.52",
     "rich>=13",
@@ -247,4 +247,11 @@ default-groups = ["test"]
 
 [dependency-groups]
 test = ["pytest>=9.0.3", "coverage>=7.14.1"]
-dev = [{include-group = "test"}, "ruff==0.15.16", "pre-commit>=4.6.0", "pyrefly>=1.0.0", "codespell>=2.4.2", "rattle-lint>=2.5.1"]
+dev = [
+    { include-group = "test" },
+    "ruff==0.15.16",
+    "pre-commit>=4.6.0",
+    "pyrefly>=1.0.0",
+    "codespell>=2.4.2",
+    "rattle-lint>=2.5.1",
+]
