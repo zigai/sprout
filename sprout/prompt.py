@@ -80,75 +80,356 @@ def collect_answers(
     return answers
 
 
+class QuestionPrompt:
+    """Own the rendering and input workflow for one resolved question."""
+
+    def __init__(
+        self,
+        question: Question,
+        answers: dict[str, DefaultValue],
+        style: Style,
+    ) -> None:
+        self.question = question
+        self.answers = answers
+        self.style = style
+        self.resolved = ResolvedPrompt.from_question(question, answers)
+        self.processor = AnswerProcessor(question, answers)
+
+    def ask(self) -> DefaultValue:
+        if self.resolved.inline_choice_enabled and supports_live_interaction():
+            selection = self._run_inline_application()
+            raw_selection = selection if isinstance(selection, str) else str(selection)
+            processed = self.processor.process(selection, raw=raw_selection)
+            _print_choice_summary(
+                self.question,
+                selection,
+                dict(self.resolved.choices),
+                self.style,
+            )
+
+            return processed
+
+        self._print_header()
+        if self.resolved.has_choices:
+            return self._ask_choice()
+
+        return self._ask_text()
+
+    def _print_header(self) -> None:
+        header = Text()
+        header.append(self.style.prompt.prefix, style=self.style.prompt.prefix_style)
+        question_text = Text(self.question.prompt, style=self.style.prompt.text_style)
+        question_text.stylize("bold")
+        header += question_text
+
+        if self.question.help:
+            header.append(
+                f" - {self.question.help}",
+                style=self.style.prompt.help_style,
+            )
+
+        instruction = (
+            self.style.menu.instruction_multi
+            if self.question.multiselect
+            else self.style.menu.instruction_single
+        )
+        if self.resolved.has_choices and instruction:
+            header.append("  ")
+            header.append(instruction, style=self.style.menu.instruction_style)
+
+        inline_preview = self._format_inline_preview()
+        if inline_preview:
+            header.append(" ")
+            header.append(inline_preview, style=self.style.default_style)
+
+        console.print(header)
+
+    def _ask_choice(self) -> DefaultValue:
+        choices = list(self.resolved.choices)
+        if not choices:
+            return self.resolved.default_value
+
+        value_to_label = dict(choices)
+        current_default = self.resolved.default_value
+
+        while True:
+            if supports_live_interaction():
+                selection = self._run_choice_application(choices, current_default)
+            else:
+                return FallbackChoicePrompt(
+                    question=self.question,
+                    answers=self.answers,
+                    default_value=current_default,
+                    choices=choices,
+                    value_to_label=value_to_label,
+                    style=self.style,
+                ).ask()
+
+            raw_selection = selection if isinstance(selection, str) else str(selection)
+            try:
+                processed = self.processor.process(selection, raw=raw_selection)
+                _print_choice_summary(
+                    self.question,
+                    selection,
+                    value_to_label,
+                    self.style,
+                )
+            except ValueError as e:
+                _print_error(e, self.style)
+                current_default = selection
+            else:
+                return processed
+
+    def _ask_text(self) -> DefaultValue:
+        default_value = self.resolved.default_value
+
+        while True:
+            if supports_live_interaction():
+                session: PromptSession[str] = PromptSession()
+                has_default = default_value not in (None, "", [])
+
+                if has_default:
+                    default_str = str(default_value)
+                    response = session.prompt(
+                        f"{self.style.input_prefix} ",
+                        placeholder=default_str,
+                        key_bindings=_placeholder_key_bindings(default_str),
+                    )
+                else:
+                    response = session.prompt(f"{self.style.input_prefix} ")
+            else:
+                response = console.input(
+                    f"[bold green]{self.style.input_prefix} [/bold green]"
+                ).strip()
+
+            stripped = response.strip()
+            if not stripped:
+                if default_value in (None, []):
+                    _print_error("Please provide a value.", self.style)
+                    continue
+
+                candidate: DefaultValue = default_value
+                parser_input = str(default_value)
+            else:
+                candidate = stripped
+                parser_input = stripped
+
+            try:
+                candidate = self.processor.process(candidate, raw=parser_input)
+                display_value = parser_input or str(candidate)
+
+                if supports_live_interaction():
+                    _highlight_prompt_line(display_value, self.style)
+                else:
+                    _print_text_summary(display_value, self.style)
+            except ValueError as e:
+                _print_error(e, self.style)
+            else:
+                return candidate
+
+    def _format_inline_preview(self) -> str:
+        if not self.resolved.inline_choice_enabled or not self.resolved.choices:
+            return ""
+
+        parts: list[str] = []
+        for value, label in self.resolved.choices:
+            icon = (
+                self.style.inline.selected_icon
+                if value == self.resolved.default_value
+                else self.style.inline.unselected_icon
+            )
+            parts.append(f"{icon} {label or value}")
+
+        return self.style.inline.separator.join(parts)
+
+    def _run_choice_application(
+        self,
+        choices: Sequence[Choice],
+        default_value: DefaultValue,
+    ) -> DefaultValue:
+        items = list(choices)
+        if not items:
+            return default_value
+
+        value_to_index = {value: idx for idx, (value, _) in enumerate(items)}
+        selected_indices: set[int]
+
+        if self.question.multiselect:
+            default_values = (
+                list(default_value) if isinstance(default_value, (list, tuple, set)) else []
+            )
+            selected_indices = {
+                value_to_index[value] for value in default_values if value in value_to_index
+            }
+            pointer = min(selected_indices) if selected_indices else 0
+        else:
+            selected_indices = set()
+            pointer = value_to_index.get(default_value, 0) if isinstance(default_value, str) else 0
+
+        pointer_box = [pointer]
+        selected_box = set(selected_indices)
+        pt_style = PTStyle.from_dict(
+            {
+                "title": self.style.prompt.text_style,
+                "hint": self.style.menu.instruction_style,
+                "caret": self.style.menu.caret_style,
+                "bullet.sel": self.style.menu.bullet_selected_style,
+                "bullet": self.style.menu.bullet_unselected_style,
+                "text.sel": self.style.menu.text_selected_style,
+                "text": self.style.menu.text_unselected_style,
+            }
+        )
+
+        def _render() -> list[tuple[str, str]]:
+            fragments: list[tuple[str, str]] = []
+
+            for idx, (value, label) in enumerate(items):
+                caret = (
+                    self.style.menu.caret_icon
+                    if idx == pointer_box[0]
+                    else " " * len(self.style.menu.caret_icon)
+                )
+                caret_style = "class:caret" if idx == pointer_box[0] else ""
+                bullet_selected = (
+                    idx in selected_box if self.question.multiselect else idx == pointer_box[0]
+                )
+                bullet_style = "class:bullet.sel" if bullet_selected else "class:bullet"
+                bullet = (
+                    self.style.menu.bullet_selected_icon
+                    if bullet_selected
+                    else self.style.menu.bullet_unselected_icon
+                )
+                text_style = "class:text.sel" if idx == pointer_box[0] else "class:text"
+                display = label or value
+
+                fragments.append((caret_style, caret))
+                fragments.append((bullet_style, bullet))
+                fragments.append((text_style, display))
+
+                if idx != len(items) - 1:
+                    fragments.append(("", "\n"))
+
+            return fragments
+
+        body_control = FormattedTextControl(_render)
+        body = Window(content=body_control, always_hide_cursor=True)
+        app: Application[object] = Application(
+            layout=Layout(HSplit([body])),
+            key_bindings=ChoiceKeyBindings(
+                pointer_box=pointer_box,
+                selected_box=selected_box,
+                items=items,
+                multiselect=self.question.multiselect,
+            ).build(),
+            mouse_support=False,
+            full_screen=False,
+            style=pt_style,
+        )
+
+        result = app.run()
+        if result is None:
+            if self.question.multiselect:
+                return [items[idx][0] for idx in sorted(selected_indices)]
+
+            return default_value
+
+        return result
+
+    def _run_inline_application(self) -> DefaultValue:
+        items = list(self.resolved.choices)
+        value_to_index = {value: idx for idx, (value, _) in enumerate(items)}
+        default_value = self.resolved.default_value
+        pointer = value_to_index.get(default_value, 0) if isinstance(default_value, str) else 0
+        pointer_box = [pointer]
+
+        pt_style = PTStyle.from_dict(
+            {
+                "prompt": self.style.prompt.text_style,
+                "prefix": self.style.prompt.prefix_style,
+                "bullet.sel": self.style.inline.bullet_selected_style,
+                "bullet": self.style.inline.bullet_unselected_style,
+                "text.sel": self.style.inline.text_selected_style,
+                "text": self.style.inline.text_unselected_style,
+                "hint": self.style.inline.instruction_style,
+            }
+        )
+
+        def _render() -> list[tuple[str, str]]:
+            fragments: list[tuple[str, str]] = [
+                ("class:prefix", self.style.prompt.prefix),
+                ("class:prompt", f"{self.question.prompt} "),
+            ]
+
+            for idx, (value, label) in enumerate(items):
+                selected = idx == pointer_box[0]
+                bullet_style = "class:bullet.sel" if selected else "class:bullet"
+                bullet = (
+                    self.style.inline.selected_icon
+                    if selected
+                    else self.style.inline.unselected_icon
+                )
+                text_style = "class:text.sel" if selected else "class:text"
+                display = label or value
+
+                fragments.append((bullet_style, bullet))
+                fragments.append(("", " "))
+                fragments.append((text_style, display))
+
+                if idx != len(items) - 1:
+                    fragments.append(("", self.style.inline.separator))
+
+            if self.style.inline.instruction:
+                fragments.append(("", "  "))
+                fragments.append(("class:hint", self.style.inline.instruction))
+
+            return fragments
+
+        body_control = FormattedTextControl(_render)
+        body = Window(content=body_control, height=1, always_hide_cursor=True)
+        keybind = KeyBindings()
+
+        @keybind.add("left")
+        @keybind.add("h")
+        @keybind.add("up")
+        def _go_left(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
+            pointer_box[0] = (pointer_box[0] - 1) % len(items)
+            event.app.invalidate()
+
+        @keybind.add("right")
+        @keybind.add("l")
+        @keybind.add("down")
+        def _go_right(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
+            pointer_box[0] = (pointer_box[0] + 1) % len(items)
+            event.app.invalidate()
+
+        @keybind.add("enter")
+        def _confirm(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
+            event.app.exit(result=items[pointer_box[0]][0])
+
+        @keybind.add("c-c")
+        def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
+            event.app.exit(exception=KeyboardInterrupt)
+
+        app: Application[object] = Application(
+            layout=Layout(HSplit([body])),
+            key_bindings=keybind,
+            mouse_support=False,
+            full_screen=False,
+            style=pt_style,
+        )
+
+        result = app.run()
+        if result is None:
+            return default_value
+
+        return result
+
+
 def ask_question(
     question: Question, answers: dict[str, DefaultValue], style: Style
 ) -> DefaultValue:
-    """
-    Prompt for one question and return the parsed answer value.
-
-    Args:
-        question (Question): Question definition including parsing and validation rules.
-        answers (dict[str, DefaultValue]): Previously collected answers used for dynamic behavior.
-        style (Style): Prompt rendering configuration.
-
-    Raises:
-        ValueError: If inline-choice parsing or validation fails.
-    """
-    resolved = ResolvedPrompt.from_question(question, answers)
-    processor = AnswerProcessor(question, answers)
-
-    if resolved.inline_choice_enabled and supports_live_interaction():
-        selection = _prompt_toolkit_inline_choice(
-            question,
-            resolved.choices,
-            resolved.default_value,
-            style,
-        )
-        raw_selection = selection if isinstance(selection, str) else str(selection)
-        processed = processor.process(selection, raw=raw_selection)
-        value_to_label = dict(resolved.choices)
-        _print_choice_summary(question, selection, value_to_label, style)
-
-        return processed
-
-    inline_preview = ""
-
-    if resolved.inline_choice_enabled and resolved.choices:
-        inline_preview = _format_inline_preview(resolved.default_value, style, resolved.choices)
-
-    header = Text()
-    header.append(style.prompt.prefix, style=style.prompt.prefix_style)
-    question_text = Text(question.prompt, style=style.prompt.text_style)
-    question_text.stylize("bold")
-    header += question_text
-
-    if question.help:
-        header.append(f" - {question.help}", style=style.prompt.help_style)
-
-    instruction = (
-        style.menu.instruction_multi if question.multiselect else style.menu.instruction_single
-    )
-
-    if resolved.has_choices and instruction:
-        header.append("  ")
-        header.append(instruction, style=style.menu.instruction_style)
-
-    if inline_preview:
-        header.append(" ")
-        header.append(inline_preview, style=style.default_style)
-
-    console.print(header)
-
-    if resolved.has_choices:
-        return _interactive_choice(
-            question,
-            answers,
-            resolved.default_value,
-            style,
-            resolved.choices,
-        )
-
-    return _prompt_for_text(question, resolved.default_value, answers, style)
+    """Prompt for one question and return the parsed answer value."""
+    return QuestionPrompt(question, answers, style).ask()
 
 
 def confirm_overwrite(path: Path, *, style: Style) -> bool:
@@ -170,211 +451,6 @@ def confirm_overwrite(path: Path, *, style: Style) -> bool:
     )
     answer = ask_question(question, {}, style)
     return answer == "yes"
-
-
-def _interactive_choice(
-    question: Question,
-    answers: dict[str, DefaultValue],
-    default_value: DefaultValue,
-    style: Style,
-    choices: Sequence[Choice],
-) -> DefaultValue:
-    choices = list(choices or [])
-    if not choices:
-        return default_value
-
-    value_to_label = dict(choices)
-    current_default = default_value
-    processor = AnswerProcessor(question, answers)
-
-    while True:
-        if supports_live_interaction():
-            selection = _prompt_toolkit_choice(question, choices, current_default, style)
-        else:
-            return FallbackChoicePrompt(
-                question=question,
-                answers=answers,
-                default_value=current_default,
-                choices=choices,
-                value_to_label=value_to_label,
-                style=style,
-            ).ask()
-
-        raw_selection = selection if isinstance(selection, str) else str(selection)
-        try:
-            processed = processor.process(selection, raw=raw_selection)
-            _print_choice_summary(question, selection, value_to_label, style)
-        except ValueError as e:
-            _print_error(e, style)
-
-            current_default = selection
-        else:
-            return processed
-
-
-def _prompt_for_text(
-    question: Question,
-    default_value: DefaultValue,
-    answers: dict[str, DefaultValue],
-    style: Style,
-) -> DefaultValue:
-    processor = AnswerProcessor(question, answers)
-
-    while True:
-        if supports_live_interaction():
-            session: PromptSession[str] = PromptSession()
-            has_default = default_value not in (None, "", [])
-
-            if has_default:
-                default_str = str(default_value)
-                response = session.prompt(
-                    f"{style.input_prefix} ",
-                    placeholder=default_str,
-                    key_bindings=_placeholder_key_bindings(default_str),
-                )
-            else:
-                response = session.prompt(f"{style.input_prefix} ")
-        else:
-            response = console.input(f"[bold green]{style.input_prefix} [/bold green]").strip()
-
-        stripped = response.strip()
-
-        if not stripped:
-            if default_value in (None, []):
-                _print_error("Please provide a value.", style)
-                continue
-
-            candidate: DefaultValue = default_value
-            parser_input = str(default_value)
-        else:
-            candidate = stripped
-            parser_input = stripped
-
-        try:
-            candidate = processor.process(candidate, raw=parser_input)
-            display_value = parser_input or str(candidate)
-
-            if supports_live_interaction():
-                _highlight_prompt_line(display_value, style)
-            else:
-                _print_text_summary(display_value, style)
-        except ValueError as e:
-            _print_error(e, style)
-        else:
-            return candidate
-
-
-def _format_inline_preview(
-    default_value: DefaultValue,
-    style: Style,
-    choices: Sequence[Choice],
-) -> str:
-    if not choices:
-        return ""
-
-    parts = []
-    for value, label in choices:
-        icon = (
-            style.inline.selected_icon if value == default_value else style.inline.unselected_icon
-        )
-        parts.append(f"{icon} {label or value}")
-
-    return style.inline.separator.join(parts)
-
-
-def _prompt_toolkit_choice(
-    question: Question,
-    choices: Sequence[Choice],
-    default_value: DefaultValue,
-    style: Style,
-) -> DefaultValue:
-    items = list(choices)
-    if not items:
-        return default_value
-
-    value_to_index = {value: idx for idx, (value, _) in enumerate(items)}
-    selected_indices: set[int]
-
-    if question.multiselect:
-        default_values = (
-            list(default_value) if isinstance(default_value, (list, tuple, set)) else []
-        )
-        selected_indices = {
-            value_to_index[value] for value in default_values if value in value_to_index
-        }
-        pointer = min(selected_indices) if selected_indices else 0
-    else:
-        selected_indices = set()
-        pointer = value_to_index.get(default_value, 0) if isinstance(default_value, str) else 0
-
-    pointer_box = [pointer]
-    selected_box = set(selected_indices)
-
-    pt_style = PTStyle.from_dict(
-        {
-            "title": style.prompt.text_style,
-            "hint": style.menu.instruction_style,
-            "caret": style.menu.caret_style,
-            "bullet.sel": style.menu.bullet_selected_style,
-            "bullet": style.menu.bullet_unselected_style,
-            "text.sel": style.menu.text_selected_style,
-            "text": style.menu.text_unselected_style,
-        }
-    )
-
-    def _render() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-
-        for idx, (value, label) in enumerate(items):
-            caret = (
-                style.menu.caret_icon if idx == pointer_box[0] else " " * len(style.menu.caret_icon)
-            )
-            caret_style = "class:caret" if idx == pointer_box[0] else ""
-            bullet_selected = idx in selected_box if question.multiselect else idx == pointer_box[0]
-
-            bullet_style = "class:bullet.sel" if bullet_selected else "class:bullet"
-            bullet = (
-                style.menu.bullet_selected_icon
-                if bullet_selected
-                else style.menu.bullet_unselected_icon
-            )
-            text_style = "class:text.sel" if idx == pointer_box[0] else "class:text"
-
-            display = label or value
-            fragments.append((caret_style, caret))
-            fragments.append((bullet_style, bullet))
-            fragments.append((text_style, str(display)))
-
-            if idx != len(items) - 1:
-                fragments.append(("", "\n"))
-
-        return fragments
-
-    body_control = FormattedTextControl(_render)
-    body = Window(content=body_control, always_hide_cursor=True)
-
-    app: Application[object] = Application(
-        layout=Layout(HSplit([body])),
-        key_bindings=ChoiceKeyBindings(
-            pointer_box=pointer_box,
-            selected_box=selected_box,
-            items=items,
-            multiselect=question.multiselect,
-        ).build(),
-        mouse_support=False,
-        full_screen=False,
-        style=pt_style,
-    )
-
-    result = app.run()
-
-    if result is None:
-        if question.multiselect:
-            return [items[idx][0] for idx in sorted(selected_indices)]
-
-        return default_value
-
-    return result
 
 
 @dataclass
@@ -458,96 +534,6 @@ def _bind_interrupt_key(keybind: KeyBindings) -> None:
     @keybind.add("c-c")
     def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
         event.app.exit(exception=KeyboardInterrupt)
-
-
-def _prompt_toolkit_inline_choice(
-    question: Question,
-    choices: Sequence[Choice],
-    default_value: DefaultValue,
-    style: Style,
-) -> DefaultValue:
-    items = list(choices)
-    value_to_index = {value: idx for idx, (value, _) in enumerate(items)}
-    pointer = value_to_index.get(default_value, 0) if isinstance(default_value, str) else 0
-    pointer_box = [pointer]
-
-    pt_style = PTStyle.from_dict(
-        {
-            "prompt": style.prompt.text_style,
-            "prefix": style.prompt.prefix_style,
-            "bullet.sel": style.inline.bullet_selected_style,
-            "bullet": style.inline.bullet_unselected_style,
-            "text.sel": style.inline.text_selected_style,
-            "text": style.inline.text_unselected_style,
-            "hint": style.inline.instruction_style,
-        }
-    )
-
-    def _render() -> list[tuple[str, str]]:
-        fragments: list[tuple[str, str]] = []
-        fragments.append(("class:prefix", style.prompt.prefix))
-        fragments.append(("class:prompt", f"{question.prompt} "))
-
-        for idx, (value, label) in enumerate(items):
-            selected = idx == pointer_box[0]
-            bullet_style = "class:bullet.sel" if selected else "class:bullet"
-            bullet = style.inline.selected_icon if selected else style.inline.unselected_icon
-            text_style = "class:text.sel" if selected else "class:text"
-            display = label or value
-
-            fragments.append((bullet_style, bullet))
-            fragments.append(("", " "))
-            fragments.append((text_style, display))
-
-            if idx != len(items) - 1:
-                fragments.append(("", style.inline.separator))
-
-        if style.inline.instruction:
-            fragments.append(("", "  "))
-            fragments.append(("class:hint", style.inline.instruction))
-
-        return fragments
-
-    body_control = FormattedTextControl(_render)
-    body = Window(content=body_control, height=1, always_hide_cursor=True)
-
-    keybind = KeyBindings()
-
-    @keybind.add("left")
-    @keybind.add("h")
-    @keybind.add("up")
-    def _go_left(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
-        pointer_box[0] = (pointer_box[0] - 1) % len(items)
-        event.app.invalidate()
-
-    @keybind.add("right")
-    @keybind.add("l")
-    @keybind.add("down")
-    def _go_right(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
-        pointer_box[0] = (pointer_box[0] + 1) % len(items)
-        event.app.invalidate()
-
-    @keybind.add("enter")
-    def _confirm(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
-        event.app.exit(result=items[pointer_box[0]][0])
-
-    @keybind.add("c-c")
-    def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
-        event.app.exit(exception=KeyboardInterrupt)
-
-    app: Application[object] = Application(
-        layout=Layout(HSplit([body])),
-        key_bindings=keybind,
-        mouse_support=False,
-        full_screen=False,
-        style=pt_style,
-    )
-
-    result = app.run()
-    if result is None:
-        return default_value
-
-    return result
 
 
 class FallbackChoicePrompt:

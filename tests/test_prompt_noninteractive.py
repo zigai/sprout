@@ -7,12 +7,12 @@ import pytest
 from sprout.prompt import (
     DefaultPlaceholderBindings,
     FallbackChoicePrompt,
+    QuestionPrompt,
     _apply_cli_answer,
     _apply_parser,
     _as_choice_values,
     _fallback_default_values,
     _fallback_lookup_maps,
-    _prompt_for_text,
     _run_validator,
 )
 from sprout.question import Question
@@ -221,8 +221,8 @@ def test_prompt_for_text_accepts_empty_string_default(
         "sprout.prompt._print_text_summary", lambda value, _style: summaries.append(value)
     )
 
-    question = Question(key="description", prompt="Description")
-    result = _prompt_for_text(question, "", {}, Style())
+    question = Question(key="description", prompt="Description", default="")
+    result = QuestionPrompt(question, {}, Style()).ask()
 
     assert result == ""
     assert summaries == [""]
@@ -243,7 +243,7 @@ def test_prompt_for_text_noninteractive_retries_until_valid(
     monkeypatch.setattr("sprout.prompt._print_text_summary", lambda _value, _style: None)
 
     question = Question(key="name", prompt="Project name")
-    result = _prompt_for_text(question, None, {}, Style())
+    result = QuestionPrompt(question, {}, Style()).ask()
 
     assert result == "value"
     assert "Please provide a value." in errors
