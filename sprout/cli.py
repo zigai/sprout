@@ -12,17 +12,26 @@ import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
-from typing import Any, Literal
+from types import ModuleType, TracebackType
+from typing import Any, Literal, Self
 
 from interfacy.argparse_backend.argument_parser import ArgumentParser, namespace_to_dict
 from jinja2 import Environment
 from jinja2.ext import Extension
+from rich.table import Table
 from rich.text import Text
 
 from sprout.extensions import build_environment
 from sprout.prompt import ask_question, collect_answers, console, supports_live_interaction
 from sprout.question import YES_NO_CHOICES, AnswerMap, DefaultValue, Question, parse_yes_no
+from sprout.registry import (
+    TemplateRegistry,
+    TrustedTemplate,
+    derive_template_name,
+    normalize_template_name,
+    normalize_template_source,
+)
+from sprout.scaffold import create_template_scaffold
 from sprout.style import Style
 
 
@@ -88,6 +97,69 @@ class Manifest:
     cli_boolean_style: CliBooleanStyle = "flags"
 
 
+class TemplateSource:
+    """Own a resolved local template root and any temporary clone behind it."""
+
+    def __init__(
+        self,
+        root: Path,
+        temporary_directory: tempfile.TemporaryDirectory[str] | None = None,
+    ) -> None:
+        self.root = root
+        self._temporary_directory = temporary_directory
+
+    @classmethod
+    def from_source(cls, template_src: str) -> TemplateSource:
+        candidate = Path(template_src).expanduser()
+        if candidate.exists():
+            if not candidate.is_dir():
+                raise SystemExit(f"template source {template_src} must be a directory.")
+
+            return cls(candidate.resolve())
+
+        url = _normalise_git_url(template_src)
+        git_executable = _resolve_git_executable()
+        temporary_directory = tempfile.TemporaryDirectory(prefix="sprout-template-")
+        target_dir = Path(temporary_directory.name) / "template"
+
+        try:
+            subprocess.run(  # noqa: S603 - validated git clone invocation
+                [git_executable, "clone", "--depth", "1", "--", url, str(target_dir)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:  # pragma: no cover - external dependency
+            temporary_directory.cleanup()
+            stderr = e.stderr.strip() if e.stderr else str(e)
+            raise SystemExit(f"failed to clone template from {url}: {stderr}") from e
+        except BaseException:
+            temporary_directory.cleanup()
+            raise
+
+        return cls(target_dir, temporary_directory)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        e: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        del exception_type, e, traceback
+        self.close()
+
+    def close(self) -> None:
+        temporary_directory = self._temporary_directory
+        if temporary_directory is None:
+            return
+
+        self._temporary_directory = None
+        temporary_directory.cleanup()
+
+
 @dataclass(frozen=True)
 class PreparedTemplate:
     """
@@ -95,17 +167,22 @@ class PreparedTemplate:
 
     Attributes:
         template_src (str): Template source used for this prepared manifest.
-        template_dir (Path): Resolved local template directory.
+        source (TemplateSource): Owner of the resolved local template directory.
         manifest (Manifest): Loaded manifest definition.
-        cleanup (Callable[[], None]): Cleanup callback for temporary resources.
         questions (Sequence[Question]): Resolved questions available for CLI flags.
     """
 
     template_src: str
-    template_dir: Path
+    source: TemplateSource
     manifest: Manifest
-    cleanup: Callable[[], None]
     questions: Sequence[Question]
+
+    @property
+    def template_dir(self) -> Path:
+        return self.source.root
+
+    def close(self) -> None:
+        self.source.close()
 
 
 @dataclass(frozen=True)
@@ -116,7 +193,8 @@ class CliInvocation:
 
     @classmethod
     def from_args(cls, args: Sequence[str] | None) -> CliInvocation:
-        template_src, destination = _extract_template_destination(args)
+        command_args = args[1:] if args and args[0] == "new" else None
+        template_src, destination = _extract_template_destination(command_args)
 
         return cls(
             template_src=template_src,
@@ -656,6 +734,95 @@ def generate(
     return _run_generate(template, destination, force=force, initial_answers=None, prepared=None)
 
 
+def init_template(directory: str | Path = ".") -> int:
+    """Create a minimal Sprout template scaffold."""
+    root = Path(directory).expanduser().resolve()
+    created = create_template_scaffold(root)
+    summarize(_normalise_created(created, root), root)
+
+    return 0
+
+
+def add_template(source: str, *, name: str | None = None) -> int:
+    """Add a local or remote template source to the trusted registry."""
+    normalized_source = normalize_template_source(source)
+    default_name = derive_template_name(normalized_source)
+    template_name = (
+        normalize_template_name(name) if name is not None else _prompt_template_name(default_name)
+    )
+    registry = TemplateRegistry()
+    existing = registry.find(template_name)
+    if existing is not None and not _confirm_template_replace(existing, normalized_source):
+        raise SystemExit("template registry was not changed.")
+
+    registry.save(TrustedTemplate(name=template_name, source=normalized_source))
+    console.print(
+        Text(
+            f"Trusted template '{template_name}' now points to {normalized_source}.", style="green"
+        )
+    )
+
+    return 0
+
+
+def list_templates() -> int:
+    """List trusted template names and their sources."""
+    entries = TemplateRegistry().entries()
+    if not entries:
+        console.print("No trusted templates have been added.")
+        return 0
+
+    table = Table()
+    table.add_column("Name", style="bold cyan")
+    table.add_column("Source")
+    for entry in entries:
+        table.add_row(entry.name, entry.source)
+
+    console.print(table)
+
+    return 0
+
+
+def _prompt_template_name(default_name: str) -> str:
+    if not supports_live_interaction():
+        raise SystemExit("--name is required when interactive prompting is unavailable.")
+
+    answer = ask_question(
+        Question(key="name", prompt="Template name", default=default_name),
+        {},
+        Style(),
+    )
+    if not isinstance(answer, str):
+        raise SystemExit("template name must be text.")
+
+    return normalize_template_name(answer)
+
+
+def _confirm_template_replace(existing: TrustedTemplate, source: str) -> bool:
+    if not supports_live_interaction():
+        raise SystemExit(
+            f"trusted template '{existing.name}' already exists; interactive confirmation is required."
+        )
+
+    answer = ask_question(
+        Question.yes_no(
+            key="replace",
+            prompt=f"Replace trusted template '{existing.name}' with {source}?",
+            default=False,
+        ),
+        {},
+        Style(),
+    )
+
+    return answer is True
+
+
+def _resolve_registered_template(template: str) -> str:
+    entry = TemplateRegistry().find(template)
+
+    return entry.source if entry is not None else template
+
+
 def _run_generate(
     template: str,
     destination: str | Path,
@@ -670,13 +837,14 @@ def _run_generate(
         destination=destination_path,
         force=force,
     )
-    cleanup: Callable[[], None] | None = None
+    source: TemplateSource | None = None
     try:
         if prepared is not None and prepared.template_src == template:
             template_dir = prepared.template_dir
             manifest = prepared.manifest
         else:
-            template_dir, cleanup = _prepare_template_source(args.template_src)
+            source = TemplateSource.from_source(args.template_src)
+            template_dir = source.root
             manifest = _load_manifest(template_dir)
 
         execute_manifest(
@@ -690,8 +858,8 @@ def _run_generate(
         console.print(Text("Aborted by user.", style="bold red"))
         return 1
     finally:
-        if cleanup:
-            cleanup()
+        if source is not None:
+            source.close()
 
     return 0
 
@@ -774,35 +942,6 @@ def _validate_context_hook_signature(hook: Callable[..., object], hook_name: str
 
     if not valid_shape:
         raise SystemExit(f"{hook_name}() in sprout.py must accept exactly one parameter: context.")
-
-
-def _prepare_template_source(template_src: str) -> tuple[Path, Callable[[], None]]:
-    candidate = Path(template_src).expanduser()
-    if candidate.exists():
-        if not candidate.is_dir():
-            raise SystemExit(f"template source {template_src} must be a directory.")
-
-        return candidate.resolve(), lambda: None
-
-    url = _normalise_git_url(template_src)
-    temp_dir_context = tempfile.TemporaryDirectory(prefix="sprout-template-")
-    temp_dir = Path(temp_dir_context.name)
-    target_dir = temp_dir / "template"
-    git_executable = _resolve_git_executable()
-
-    try:
-        subprocess.run(  # noqa: S603 - validated git clone invocation
-            [git_executable, "clone", "--depth", "1", "--", url, str(target_dir)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.CalledProcessError as e:  # pragma: no cover - external dependency
-        temp_dir_context.cleanup()
-        stderr = e.stderr.strip() if e.stderr else str(e)
-        raise SystemExit(f"failed to clone template from {url}: {stderr}") from e
-
-    return target_dir, temp_dir_context.cleanup
 
 
 def _resolve_git_executable() -> str:
@@ -973,7 +1112,7 @@ _HELP_OPTIONS = {"-h", "--help"}
 _HELP_PROBE_DESTINATION = "__sprout_help_destination__"
 _HELP_PRELOAD_FALLBACK_NOTE = (
     "Template-specific options could not be resolved from template-only help. "
-    "Run sprout <template> <destination> --help for full template-aware options."
+    "Run sprout new <template> <destination> --help for full template-aware options."
 )
 
 
@@ -1034,21 +1173,21 @@ def _extract_template_destination(
 
 
 def _load_questions_for_cli(template_src: str, destination: Path) -> PreparedTemplate:
-    template_dir, cleanup = _prepare_template_source(template_src)
+    source = TemplateSource.from_source(template_src)
     try:
+        template_dir = source.root
         manifest = _load_manifest(template_dir)
         actual_template_dir = _resolve_actual_template_dir(template_dir, manifest.template_dir)
         env = build_environment(actual_template_dir, extensions=manifest.extensions or ())
         questions = _resolve_questions(manifest.questions, env, destination)
-    except (Exception, SystemExit):
-        cleanup()
+    except (Exception, KeyboardInterrupt, SystemExit):
+        source.close()
         raise
 
     return PreparedTemplate(
         template_src=template_src,
-        template_dir=template_dir,
+        source=source,
         manifest=manifest,
-        cleanup=cleanup,
         questions=questions,
     )
 
@@ -1057,14 +1196,16 @@ def _prepare_template_for_cli(
     invocation: CliInvocation,
 ) -> tuple[PreparedTemplate | None, str | None]:
     if invocation.template_src and invocation.destination is not None:
-        return _load_questions_for_cli(invocation.template_src, invocation.destination), None
+        template_src = _resolve_registered_template(invocation.template_src)
+        return _load_questions_for_cli(template_src, invocation.destination), None
 
     if not invocation.template_src or not invocation.help_requested:
         return None, None
 
     try:
         probe_destination = (Path.cwd() / _HELP_PROBE_DESTINATION).resolve()
-        return _load_questions_for_cli(invocation.template_src, probe_destination), None
+        template_src = _resolve_registered_template(invocation.template_src)
+        return _load_questions_for_cli(template_src, probe_destination), None
     except SystemExit:
         return None, _HELP_PRELOAD_FALLBACK_NOTE
     except Exception:  # noqa: BLE001 - help output should not fail on preload errors.
@@ -1128,25 +1269,64 @@ def _build_cli_parser(
     *,
     help_note: str | None = None,
 ) -> ArgumentParser:
-    description = "Generate a project from a sprout manifest."
-    if help_note:
-        description = f"{description}\n\n{help_note}"
     parser = ArgumentParser(
         prog="sprout",
-        description=description,
+        description="Create projects from Sprout templates.",
     )
-    parser.add_argument(
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    init_parser = commands.add_parser(
+        "init",
+        help="Create a minimal Sprout template scaffold.",
+        description="Create a minimal Sprout template scaffold.",
+    )
+    init_parser.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        help="directory where the scaffold should be created",
+    )
+
+    add_parser = commands.add_parser(
+        "add",
+        help="Add a source to the trusted template registry.",
+        description="Add a source to the trusted template registry.",
+    )
+    add_parser.add_argument(
+        "source",
+        help="local path, Git URL, or GitHub owner/repo shorthand",
+    )
+    add_parser.add_argument(
+        "--name",
+        help="trusted template name; prompts when omitted",
+    )
+
+    new_description = "Generate a project from a Sprout manifest."
+    if help_note:
+        new_description = f"{new_description}\n\n{help_note}"
+    new_parser = commands.add_parser(
+        "new",
+        help="Generate a project from a template.",
+        description=new_description,
+    )
+    new_parser.add_argument(
         "template",
-        help="path or git repository containing a sprout.py manifest",
+        help="trusted name, local path, or Git repository containing sprout.py",
     )
-    parser.add_argument(
+    new_parser.add_argument(
         "destination",
         help="target directory for the generated project",
     )
-    parser.add_argument(
+    new_parser.add_argument(
         "--force",
         action="store_true",
         help="overwrite files in the destination directory if they already exist",
+    )
+
+    commands.add_parser(
+        "list",
+        help="List trusted templates.",
+        description="List trusted template names and their sources.",
     )
 
     if prepared is None:
@@ -1168,7 +1348,7 @@ def _build_cli_parser(
             and _is_yes_no_question(question)
         ):
             _add_boolean_question_flags(
-                parser,
+                new_parser,
                 flag=flag,
                 dest=dest,
                 help_text=help_text,
@@ -1183,7 +1363,7 @@ def _build_cli_parser(
                 help_text = f"{help_text} (choices: {', '.join(choice_values)})"
 
         if question.multiselect:
-            parser.add_argument(
+            new_parser.add_argument(
                 flag,
                 dest=dest,
                 help=help_text,
@@ -1194,7 +1374,7 @@ def _build_cli_parser(
             )
             continue
 
-        parser.add_argument(
+        new_parser.add_argument(
             flag,
             dest=dest,
             help=help_text,
@@ -1204,6 +1384,68 @@ def _build_cli_parser(
         )
 
     return parser
+
+
+def _run_init_command(values: Mapping[str, object]) -> int:
+    directory = values.get("directory", ".")
+    if not isinstance(directory, str):
+        raise SystemExit("scaffold directory must be a path.")
+
+    return init_template(directory)
+
+
+def _run_add_command(values: Mapping[str, object]) -> int:
+    source = values.get("source")
+    name = values.get("name")
+
+    if not isinstance(source, str):
+        raise SystemExit("template source is required.")
+    if name is not None and not isinstance(name, str):
+        raise SystemExit("template name must be text.")
+
+    return add_template(source, name=name)
+
+
+def _run_new_command(
+    values: Mapping[str, object],
+    prepared: PreparedTemplate | None,
+) -> int:
+    template = values.get("template")
+    destination = values.get("destination")
+    if not isinstance(template, str) or not isinstance(destination, str):
+        raise SystemExit("template and destination are required.")
+
+    cli_answers: dict[str, DefaultValue] = {}
+    if prepared is not None:
+        for question in prepared.questions:
+            dest = _sanitize_question_key(question.key)
+            if dest in values:
+                cli_answers[question.key] = values[dest]
+
+    return _run_generate(
+        _resolve_registered_template(template),
+        destination,
+        force=bool(values.get("force", False)),
+        initial_answers=cli_answers or None,
+        prepared=prepared,
+    )
+
+
+def _dispatch_command(
+    command: str,
+    values: Mapping[str, object],
+    prepared: PreparedTemplate | None,
+) -> int:
+    if command == "init":
+        return _run_init_command(values)
+    if command == "add":
+        return _run_add_command(values)
+    if command == "new":
+        return _run_new_command(values, prepared)
+    if command == "list":
+        return list_templates()
+
+    raise SystemExit(f"unknown command: {command}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1225,30 +1467,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         parsed = parser.parse_args(args_list)
         namespace = namespace_to_dict(parsed)
-        template = namespace.get("template")
-        destination_value = namespace.get("destination")
-        force = bool(namespace.get("force", False))
-        cli_answers: dict[str, DefaultValue] = {}
+        command = namespace.get("command")
+        if not isinstance(command, str):
+            raise SystemExit("a command is required.")
 
-        if prepared is not None:
-            for question in prepared.questions:
-                dest = _sanitize_question_key(question.key)
-                if dest in namespace:
-                    cli_answers[question.key] = namespace[dest]
+        command_values = namespace.get(command)
+        if command == "list" and command_values is None:
+            return list_templates()
+        if not isinstance(command_values, dict):
+            raise SystemExit(f"failed to parse {command} command arguments.")
 
-        if template is None or destination_value is None:
-            raise SystemExit("template and destination are required.")
-
-        return _run_generate(
-            template,
-            destination_value,
-            force=force,
-            initial_answers=cli_answers or None,
-            prepared=prepared,
+        merged_values = dict(command_values)
+        merged_values.update(
+            (key, value) for key, value in namespace.items() if key not in {"command", command}
         )
+
+        return _dispatch_command(command, merged_values, prepared)
     finally:
         if prepared is not None:
-            prepared.cleanup()
+            prepared.close()
 
 
 __all__ = [

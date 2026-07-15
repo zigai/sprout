@@ -9,10 +9,10 @@ from jinja2 import Environment
 from sprout.cli import (
     Manifest,
     ManifestContext,
+    TemplateSource,
     _invoke_apply,
     _normalise_created,
     _normalise_git_url,
-    _prepare_template_source,
     _resolve_actual_template_dir,
     _resolve_git_executable,
     ensure_destination,
@@ -252,25 +252,38 @@ def test_normalise_created_and_template_dir_resolution(tmp_path: Path) -> None:
     assert _resolve_actual_template_dir(root, "tpl") == (root / "tpl").resolve()
 
 
-def test_prepare_template_source_for_local_directory(tmp_path: Path) -> None:
+def test_template_source_owns_local_directory(tmp_path: Path) -> None:
     template = tmp_path / "template"
     template.mkdir()
-    resolved, cleanup = _prepare_template_source(str(template))
+    source = TemplateSource.from_source(str(template))
 
-    assert resolved == template.resolve()
-    cleanup()
+    assert source.root == template.resolve()
+    source.close()
 
 
-def test_prepare_template_source_rejects_file(tmp_path: Path) -> None:
+def test_template_source_rejects_file(tmp_path: Path) -> None:
     file_path = tmp_path / "template.txt"
     file_path.write_text("x", encoding="utf-8")
 
     with pytest.raises(SystemExit, match="must be a directory"):
-        _prepare_template_source(str(file_path))
+        TemplateSource.from_source(str(file_path))
 
 
-def test_prepare_template_source_remote_clone_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_template_source_remote_clone_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr("sprout.cli._resolve_git_executable", lambda: "git")
+    cleanup_calls: list[str] = []
+
+    class FakeTemporaryDirectory:
+        def __init__(self, prefix: str) -> None:
+            self.name = str(tmp_path / prefix)
+
+        def cleanup(self) -> None:
+            cleanup_calls.append(self.name)
+
+    monkeypatch.setattr("sprout.cli.tempfile.TemporaryDirectory", FakeTemporaryDirectory)
 
     def fake_run(*_args: object, **_kwargs: object) -> object:
         raise subprocess.CalledProcessError(
@@ -282,12 +295,12 @@ def test_prepare_template_source_remote_clone_failure(monkeypatch: pytest.Monkey
     monkeypatch.setattr("sprout.cli.subprocess.run", fake_run)
 
     with pytest.raises(SystemExit, match="failed to clone template"):
-        _prepare_template_source("owner/repo")
+        TemplateSource.from_source("owner/repo")
+
+    assert cleanup_calls == [str(tmp_path / "sprout-template-")]
 
 
-def test_prepare_template_source_remote_success(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_template_source_remote_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     created_temp = tmp_path / "download"
     created_temp.mkdir()
     cleanup_calls: list[str] = []
@@ -310,12 +323,13 @@ def test_prepare_template_source_remote_success(
 
     monkeypatch.setattr("sprout.cli.subprocess.run", fake_run)
 
-    resolved, cleanup = _prepare_template_source("owner/repo")
+    source = TemplateSource.from_source("owner/repo")
 
-    assert resolved == created_temp / "template"
+    assert source.root == created_temp / "template"
     assert calls
     assert calls[0][:3] == ["git", "clone", "--depth"]
-    cleanup()
+    source.close()
+    source.close()
     assert cleanup_calls == [str(created_temp)]
 
 

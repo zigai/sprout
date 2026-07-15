@@ -22,7 +22,7 @@ def test_main_generates_project_from_local_template(
     )
     destination = tmp_path / "generated"
 
-    exit_code = main([str(template_root), str(destination), "--name", "demo"])
+    exit_code = main(["new", str(template_root), str(destination), "--name", "demo"])
 
     assert exit_code == 0
     assert (destination / "README.md").read_text(encoding="utf-8") == "name=demo\n"
@@ -48,7 +48,7 @@ def test_main_honors_should_skip_file(make_template: TemplateFactory, tmp_path: 
     )
     destination = tmp_path / "generated"
 
-    exit_code = main([str(template_root), str(destination), "--no-include-license"])
+    exit_code = main(["new", str(template_root), str(destination), "--no-include-license"])
 
     assert exit_code == 0
     assert (destination / "README.md").read_text(encoding="utf-8") == "name=False\n"
@@ -70,7 +70,7 @@ def test_main_supports_yes_no_cli_boolean_style(
     )
     destination = tmp_path / "generated"
 
-    exit_code = main([str(template_root), str(destination), "--include-license", "no"])
+    exit_code = main(["new", str(template_root), str(destination), "--include-license", "no"])
 
     assert exit_code == 0
     assert (destination / "README.md").read_text(encoding="utf-8") == "include_license=False\n"
@@ -100,7 +100,7 @@ def test_main_supports_apply_hook(make_template: TemplateFactory, tmp_path: Path
     )
     destination = tmp_path / "generated"
 
-    exit_code = main([str(template_root), str(destination)])
+    exit_code = main(["new", str(template_root), str(destination)])
 
     assert exit_code == 0
     assert (destination / "README.md").read_text(encoding="utf-8") == "generated\n"

@@ -8,6 +8,7 @@ from jinja2 import Environment
 from sprout.cli import (
     Manifest,
     PreparedTemplate,
+    TemplateSource,
     _build_cli_parser,
     _consume_optional_value,
     _extract_template_destination,
@@ -27,9 +28,8 @@ def _prepared_template(
 ) -> PreparedTemplate:
     return PreparedTemplate(
         template_src="template",
-        template_dir=Path(),
+        source=TemplateSource(Path()),
         manifest=Manifest(questions=questions, cli_boolean_style=cli_boolean_style),
-        cleanup=lambda: None,
         questions=questions,
     )
 
@@ -76,13 +76,18 @@ def test_format_question_help_keeps_prompt_and_multiselect_note() -> None:
     assert "multiple values allowed" in message
 
 
-def test_build_cli_parser_help_shows_choices_once() -> None:
+def test_build_cli_parser_help_shows_choices_once(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     parser = _build_cli_parser(
         _prepared_template([Question(key="kind", prompt="Kind", choices=[("lib", "Library")])])
     )
 
-    help_text = parser.format_help()
+    with pytest.raises(SystemExit) as exit_info:
+        parser.parse_args(["new", "--help"])
 
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
     assert help_text.count("choices: lib") == 1
 
 
@@ -102,6 +107,7 @@ def test_build_cli_parser_adds_question_flags() -> None:
 
     parsed, _ = parser.parse_known_args(
         [
+            "new",
             "template",
             "dest",
             "--name",
@@ -118,11 +124,11 @@ def test_build_cli_parser_adds_question_flags() -> None:
         ]
     )
 
-    assert parsed.name == "demo"
-    assert parsed.kind == "lib"
-    assert parsed.dynamic == "anything"
-    assert parsed.tags == ["a", "b"]
-    assert parsed.force is True
+    assert parsed.new.name == "demo"
+    assert parsed.new.kind == "lib"
+    assert parsed.new.dynamic == "anything"
+    assert parsed.new.tags == ["a", "b"]
+    assert parsed.new.force is True
 
 
 def test_build_cli_parser_enforces_static_choices() -> None:
@@ -131,17 +137,23 @@ def test_build_cli_parser_enforces_static_choices() -> None:
     )
 
     with pytest.raises(SystemExit):
-        parser.parse_known_args(["template", "dest", "--kind", "tool"])
+        parser.parse_known_args(["new", "template", "dest", "--kind", "tool"])
 
 
-def test_build_cli_parser_defaults_yes_no_questions_to_boolean_flags() -> None:
+def test_build_cli_parser_defaults_yes_no_questions_to_boolean_flags(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     parser = _build_cli_parser(
         _prepared_template([Question.yes_no(key="include_license", prompt="Include license?")])
     )
 
-    help_text = parser.format_help()
-    parsed_yes = parser.parse_args(["template", "dest", "--include-license"])
-    parsed_no = parser.parse_args(["template", "dest", "--no-include-license"])
+    with pytest.raises(SystemExit) as exit_info:
+        parser.parse_args(["new", "--help"])
+
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    parsed_yes = parser.parse_args(["new", "template", "dest", "--include-license"])
+    parsed_no = parser.parse_args(["new", "template", "dest", "--no-include-license"])
 
     assert parsed_yes.include_license == "yes"
     assert parsed_no.include_license == "no"
@@ -156,7 +168,7 @@ def test_build_cli_parser_boolean_flags_are_mutually_exclusive() -> None:
     )
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["template", "dest", "--include-license", "--no-include-license"])
+        parser.parse_args(["new", "template", "dest", "--include-license", "--no-include-license"])
 
 
 def test_build_cli_parser_rejects_yes_no_value_in_boolean_flags_mode() -> None:
@@ -165,10 +177,12 @@ def test_build_cli_parser_rejects_yes_no_value_in_boolean_flags_mode() -> None:
     )
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["template", "dest", "--include-license", "no"])
+        parser.parse_args(["new", "template", "dest", "--include-license", "no"])
 
 
-def test_build_cli_parser_supports_manifest_yes_no_boolean_style() -> None:
+def test_build_cli_parser_supports_manifest_yes_no_boolean_style(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     parser = _build_cli_parser(
         _prepared_template(
             [Question.yes_no(key="include_license", prompt="Include license?")],
@@ -176,10 +190,14 @@ def test_build_cli_parser_supports_manifest_yes_no_boolean_style() -> None:
         )
     )
 
-    help_text = parser.format_help()
-    parsed = parser.parse_args(["template", "dest", "--include-license", "no"])
+    with pytest.raises(SystemExit) as exit_info:
+        parser.parse_args(["new", "--help"])
 
-    assert parsed.include_license == "no"
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    parsed = parser.parse_args(["new", "template", "dest", "--include-license", "no"])
+
+    assert parsed.new.include_license == "no"
     assert "--include-license" in help_text
     assert "--no-include-license" not in help_text
     assert "choices: yes, no" in help_text
@@ -189,11 +207,12 @@ def test_main_passes_cli_answers_to_run_generate(monkeypatch: pytest.MonkeyPatch
     questions = [Question(key="name", prompt="Project name")]
     cleanup_called = {"value": False}
 
+    source = TemplateSource(Path())
+    monkeypatch.setattr(source, "close", lambda: cleanup_called.update(value=True))
     prepared = PreparedTemplate(
         template_src="template",
-        template_dir=Path(),
+        source=source,
         manifest=Manifest(questions=questions),
-        cleanup=lambda: cleanup_called.update(value=True),
         questions=questions,
     )
 
@@ -219,7 +238,7 @@ def test_main_passes_cli_answers_to_run_generate(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr("sprout.cli._run_generate", fake_run_generate)
 
-    result = main(["template", "destination", "--name", "sample"])
+    result = main(["new", "template", "destination", "--name", "sample"])
 
     assert result == 7
     assert captured["initial_answers"] == {"name": "sample"}
@@ -234,11 +253,12 @@ def test_main_template_only_help_preloads_questions(
     cleanup_called = {"value": False}
     captured: dict[str, object] = {}
 
+    source = TemplateSource(Path())
+    monkeypatch.setattr(source, "close", lambda: cleanup_called.update(value=True))
     prepared = PreparedTemplate(
         template_src="template",
-        template_dir=Path(),
+        source=source,
         manifest=Manifest(questions=questions),
-        cleanup=lambda: cleanup_called.update(value=True),
         questions=questions,
     )
 
@@ -251,7 +271,7 @@ def test_main_template_only_help_preloads_questions(
     monkeypatch.setattr("sprout.cli._load_questions_for_cli", fake_load_questions_for_cli)
 
     with pytest.raises(SystemExit) as exit_info:
-        main(["template", "--help"])
+        main(["new", "template", "--help"])
 
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
@@ -271,12 +291,12 @@ def test_main_template_only_help_falls_back_to_base_help(
     monkeypatch.setattr("sprout.cli._load_questions_for_cli", fake_load_questions_for_cli)
 
     with pytest.raises(SystemExit) as exit_info:
-        main(["template", "--help"])
+        main(["new", "template", "--help"])
 
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
     assert "--force" in output
-    assert "sprout <template> <destination> --help" in output
+    assert "sprout new <template> <destination> --help" in output
 
 
 def test_main_destination_help_uses_real_destination(
@@ -295,7 +315,7 @@ def test_main_destination_help_uses_real_destination(
     monkeypatch.setattr("sprout.cli._load_questions_for_cli", fake_load_questions_for_cli)
 
     with pytest.raises(SystemExit) as exit_info:
-        main(["template", "destination", "--help"])
+        main(["new", "template", "destination", "--help"])
 
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
@@ -307,10 +327,13 @@ def test_main_destination_help_uses_real_destination(
 def test_run_generate_handles_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
     manifest = Manifest(questions=[])
     cleaned = {"value": False}
+    source = TemplateSource(Path())
+    monkeypatch.setattr(source, "close", lambda: cleaned.update(value=True))
 
     monkeypatch.setattr(
-        "sprout.cli._prepare_template_source",
-        lambda _template: (Path(), lambda: cleaned.update(value=True)),
+        TemplateSource,
+        "from_source",
+        classmethod(lambda _cls, _template: source),
     )
     monkeypatch.setattr("sprout.cli._load_manifest", lambda _template_dir: manifest)
 
