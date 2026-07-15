@@ -4,6 +4,8 @@ from sprout.cli import Manifest, ManifestContext, execute_manifest
 from sprout.extensions import CurrentYearExtension, GitDefaultsExtension, build_environment
 from sprout.project.actions import (
     GitPostActionResult,
+    ProjectPostActionOptions,
+    ProjectPostActions,
     create_github_repo,
     create_initial_commit,
     ensure_git_repo,
@@ -66,6 +68,8 @@ __all__ = [
     "Manifest",
     "ManifestContext",
     "MenuStyle",
+    "ProjectPostActionOptions",
+    "ProjectPostActions",
     "PromptStyle",
     "Question",
     "Style",

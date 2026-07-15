@@ -7,6 +7,7 @@ import pytest
 
 from sprout.project import (
     COMMON_LICENSE_CHOICES,
+    ProjectPostActions,
     github_install_source,
     github_repository_target,
     github_repository_url,
@@ -147,7 +148,7 @@ def test_run_git_post_actions_creates_initial_commit_and_github_repo(
     monkeypatch.setattr("sprout.project.actions.subprocess.run", fake_run)
     console = FakeConsole()
 
-    result = run_git_post_actions(
+    result = ProjectPostActions(
         tmp_path,
         {
             "author_name": "Zig Author",
@@ -159,7 +160,7 @@ def test_run_git_post_actions_creates_initial_commit_and_github_repo(
             "repo_name": "ignored",
         },
         console=console,
-    )
+    ).run()
 
     assert result.initial_commit_ready is True
     assert result.github_repository_created is True

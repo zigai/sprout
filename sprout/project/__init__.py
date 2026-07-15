@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from sprout.project.actions import (
     GitPostActionResult,
+    ProjectPostActionOptions,
+    ProjectPostActions,
     create_github_repo,
     create_initial_commit,
     ensure_git_repo,
@@ -46,6 +48,8 @@ __all__ = [
     "UNLICENSED_LICENSE_VALUE",
     "GitHubRepository",
     "GitPostActionResult",
+    "ProjectPostActionOptions",
+    "ProjectPostActions",
     "create_github_repo",
     "create_initial_commit",
     "ensure_git_repo",
