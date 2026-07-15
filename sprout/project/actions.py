@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import shutil
 import subprocess
 from collections.abc import Mapping
@@ -55,6 +56,7 @@ class ProjectPostActions:
         self.answers = answers or {}
         self.console = _resolve_console(console)
         self.options = options or ProjectPostActionOptions()
+        self._git_repository_initialized = False
 
     def run(self) -> GitPostActionResult:
         if bool(self.answers.get(self.options.create_github_repo_key)):
@@ -106,6 +108,7 @@ class ProjectPostActions:
             text=True,
         )
         if result.returncode == 0:
+            self._git_repository_initialized = True
             return True
 
         fallback = subprocess.run(  # noqa: S603
@@ -121,6 +124,7 @@ class ProjectPostActions:
                 cwd=self.destination,
                 check=False,
             )
+            self._git_repository_initialized = True
 
             return True
 
@@ -218,12 +222,11 @@ class ProjectPostActions:
         if description:
             command.extend(["--description", description])
 
-        if self.ensure_git_repo():
+        git_repository_ready = self.ensure_git_repo()
+        if git_repository_ready:
             command.extend(
                 ["--source", str(self.destination), "--remote", self.options.remote_name]
             )
-            if push:
-                command.append("--push")
 
         result = subprocess.run(  # noqa: S603
             command,
@@ -232,13 +235,99 @@ class ProjectPostActions:
             text=True,
             check=False,
         )
-        if result.returncode == 0:
+        if result.returncode != 0:
+            details = result.stderr.strip() or result.stdout.strip() or "unknown error"
+            self.console.print(f"[yellow]Failed to create GitHub repository: {details}[/yellow]")
+
+            return False
+
+        if not push or not git_repository_ready:
             return True
 
-        details = result.stderr.strip() or result.stdout.strip() or "unknown error"
-        self.console.print(f"[yellow]Failed to create GitHub repository: {details}[/yellow]")
+        return self._push_initial_commit(gh_executable)
+
+    def _push_initial_commit(self, gh_executable: str) -> bool:
+        git_executable = shutil.which("git")
+        if git_executable is None:
+            return False
+
+        branch = "HEAD"
+        if self._git_repository_initialized:
+            github_default_branch = self._github_default_branch(gh_executable)
+            if github_default_branch is not None:
+                rename_result = subprocess.run(  # noqa: S603
+                    [git_executable, "branch", "-M", github_default_branch],
+                    cwd=self.destination,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if rename_result.returncode == 0:
+                    branch = github_default_branch
+                else:
+                    details = (
+                        rename_result.stderr.strip()
+                        or rename_result.stdout.strip()
+                        or "unknown error"
+                    )
+                    self.console.print(
+                        "[yellow]Failed to use GitHub's configured default branch; "
+                        f"pushing the current branch instead: {details}[/yellow]"
+                    )
+
+        credential_helper = f"!{shlex.quote(gh_executable)} auth git-credential"
+        push_result = subprocess.run(  # noqa: S603
+            [
+                git_executable,
+                "-c",
+                "credential.helper=",
+                "-c",
+                f"credential.helper={credential_helper}",
+                "push",
+                "--set-upstream",
+                self.options.remote_name,
+                branch,
+            ],
+            cwd=self.destination,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if push_result.returncode == 0:
+            return True
+
+        details = push_result.stderr.strip() or push_result.stdout.strip() or "unknown error"
+        self.console.print(
+            f"[yellow]GitHub repository was created, but the initial push failed: {details}[/yellow]"
+        )
 
         return False
+
+    def _github_default_branch(self, gh_executable: str) -> str | None:
+        result = subprocess.run(  # noqa: S603
+            [
+                gh_executable,
+                "api",
+                "repos/{owner}/{repo}",
+                "--jq",
+                ".default_branch",
+            ],
+            cwd=self.destination,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        branch = result.stdout.strip()
+        if result.returncode == 0 and branch:
+            return branch
+
+        details = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        self.console.print(
+            "[yellow]Could not read GitHub's configured default branch; "
+            f"pushing the current branch instead: {details}[/yellow]"
+        )
+
+        return None
 
     def _commit_staged_changes(self, git_executable: str) -> bool:
         commit_command: list[str] = [git_executable]
