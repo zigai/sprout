@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "interfacy>=0.6.7",
+    "interfacy>=0.7.0",
     "jinja2>=3.0",
     "prompt-toolkit>=3.0.52",
     "rich>=13",
@@ -34,7 +34,7 @@ test = ["pytest>=9.0.3", "coverage>=7.14.1"]
 dev = [
     "pytest>=9.0.3",
     "coverage>=7.14.1",
-    "ruff==0.15.16",
+    "ruff==0.16.1",
     "pre-commit>=4.6.0",
     "pyrefly>=1.0.0",
     "codespell>=2.4.2",
@@ -47,7 +47,7 @@ Issues = "https://github.com/zigai/sprout/issues"
 Homepage = "https://github.com/zigai/sprout"
 
 [project.scripts]
-sprout = "sprout.cli:main"
+sprout = "sprout.cli.app:main"
 
 [build-system]
 requires = ["uv_build>=0.11.25,<0.12.0"]
@@ -55,7 +55,7 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "sprout"
-module-root = ""
+module-root = "src"
 
 [tool.coverage.run]
 source = ["sprout"]
@@ -71,10 +71,10 @@ exclude_lines = [
 omit = ["tests/*", "tests/**"]
 
 [tool.pyrefly]
-project-includes = ["sprout"]
+project-includes = ["src/sprout"]
 project-excludes = ["tests/**"]
 disable-project-excludes-heuristics = true
-search-path = ["."]
+search-path = ["src"]
 disable-search-path-heuristics = true
 python-version = "3.12"
 enabled-ignores = ["type", "pyrefly"]
@@ -158,6 +158,7 @@ ignore = [
     "PLC0415",
     "PLR0904",
     "PLR0913",
+    "PLR0917",
     "PLR2004",
     "PLR1711",
     "TRY003",
@@ -249,7 +250,7 @@ default-groups = ["test"]
 test = ["pytest>=9.0.3", "coverage>=7.14.1"]
 dev = [
     { include-group = "test" },
-    "ruff==0.15.16",
+    "ruff==0.16.1",
     "pre-commit>=4.6.0",
     "pyrefly>=1.0.0",
     "codespell>=2.4.2",

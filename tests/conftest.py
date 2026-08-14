@@ -3,17 +3,10 @@ from __future__ import annotations
 import textwrap
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Protocol
 
 import pytest
 
-
-class TemplateFactory(Protocol):
-    def __call__(
-        self,
-        manifest_source: str,
-        files: Mapping[str, str] | None = None,
-    ) -> Path: ...
+from tests.support.template_factory import TemplateFactory
 
 
 @pytest.fixture
