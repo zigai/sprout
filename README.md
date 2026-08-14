@@ -350,6 +350,10 @@ def apply(context: ManifestContext):
 `apply` must accept exactly one `context` parameter. It may return `None`, one path, or a sequence of
 paths for the generated-files summary.
 
+Programmatic APIs raise `SproutError` subclasses for expected operational failures. Catch the
+specific error when recovery differs by failure type, or catch `SproutError` at an application
+boundary. The `sprout` CLI translates these errors into concise process-exit messages.
+
 ## Examples
 
 - [python-project-template](https://github.com/zigai/python-project-template).
