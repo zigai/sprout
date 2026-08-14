@@ -76,7 +76,7 @@ def test_manifest_style_must_be_style_instance() -> None:
     module = ModuleType("manifest_module")
     module.style = "nope"
 
-    with pytest.raises(SproutManifestError, match=r"must be an instance of sprout\.style\.Style"):
+    with pytest.raises(SproutManifestError, match=r"must be an instance of sprout\.Style"):
         ManifestReader(vars(module)).style()
 
 
