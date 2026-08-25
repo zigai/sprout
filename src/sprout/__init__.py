@@ -42,6 +42,7 @@ from sprout.helpers import (
 )
 from sprout.manifest import Manifest, ManifestContext
 from sprout.prompt import (
+    DEFAULT_THEME,
     YES_NO_CHOICES,
     ContextValidatorFn,
     ErrorStyle,
@@ -66,6 +67,7 @@ from sprout.renderer import render_templates
 
 __all__ = [
     "COMMON_LICENSE_CHOICES",
+    "DEFAULT_THEME",
     "NO_LICENSE",
     "SPDX_LICENSE_CHOICES",
     "UNLICENSED_LICENSE_VALUE",

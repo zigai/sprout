@@ -9,11 +9,22 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from rich.console import Console
+from rich.theme import Theme
 
 from sprout.helpers.github import github_repository_target, is_github_repository_url
 
 GitHubVisibility = Literal["private", "public"]
-_DEFAULT_CONSOLE = Console()
+_DEFAULT_CONSOLE = Console(
+    theme=Theme(
+        {
+            "repr.path": "bright_blue",
+            "repr.filename": "bright_blue",
+            "repr.url": "underline bright_blue",
+            "markdown.link": "bright_blue",
+            "markdown.link_url": "underline bright_blue",
+        }
+    )
+)
 
 
 class SupportsConsolePrint(Protocol):

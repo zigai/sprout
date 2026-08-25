@@ -15,6 +15,7 @@ from rich.cells import cell_len
 from rich.console import Console
 from rich.padding import Padding
 from rich.text import Text
+from rich.theme import Theme
 
 from sprout.prompt.processing import AnswerProcessor, Choice, ResolvedPrompt
 from sprout.prompt.question import DefaultValue, Question
@@ -24,9 +25,17 @@ if TYPE_CHECKING:
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 
+DEFAULT_THEME = Theme(
+    {
+        "repr.path": "bright_blue",
+        "repr.filename": "bright_blue",
+        "repr.url": "underline bright_blue",
+        "markdown.link": "bright_blue",
+        "markdown.link_url": "underline bright_blue",
+    }
+)
 
-console = Console()
-
+console = Console(theme=DEFAULT_THEME)
 type ChoiceLabelMap = Mapping[str, str | None]
 type ChoiceChoiceMap = dict[str, str | None]
 
@@ -686,6 +695,7 @@ def print_error(message: str | BaseException, style: Style) -> None:
 
 
 __all__ = [
+    "DEFAULT_THEME",
     "FallbackChoicePrompt",
     "TerminalQuestion",
     "console",
