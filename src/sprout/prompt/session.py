@@ -10,7 +10,6 @@ from sprout.prompt.style import Style
 from sprout.prompt.terminal import (
     FallbackChoicePrompt,
     TerminalQuestion,
-    highlight_prompt_line,
     print_choice_summary,
     print_error,
     print_text_summary,
@@ -67,7 +66,8 @@ class QuestionPrompt:
         self.terminal = TerminalQuestion(question, self.resolved, style)
 
     def ask(self) -> DefaultValue:
-        if self.resolved.inline_choice_enabled and supports_live_interaction():
+        self.terminal.print_header()
+        if self.terminal.should_use_inline() and supports_live_interaction():
             selection = self.terminal.run_inline_application()
             raw_selection = selection if isinstance(selection, str) else str(selection)
             processed = self.processor.process(selection, raw=raw_selection)
@@ -80,7 +80,6 @@ class QuestionPrompt:
 
             return processed
 
-        self.terminal.print_header()
         if self.resolved.has_choices:
             return self._ask_choice()
 
@@ -142,10 +141,7 @@ class QuestionPrompt:
             try:
                 candidate = self.processor.process(candidate, raw=parser_input)
                 display_value = parser_input or str(candidate)
-                if supports_live_interaction():
-                    highlight_prompt_line(display_value, self.style)
-                else:
-                    print_text_summary(display_value, self.style)
+                print_text_summary(display_value, self.style)
             except ValueError as e:
                 print_error(e, self.style)
                 continue

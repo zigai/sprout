@@ -11,9 +11,9 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style as PTStyle
+from rich.cells import cell_len
 from rich.console import Console
-from rich.control import Control
-from rich.segment import ControlType
+from rich.padding import Padding
 from rich.text import Text
 
 from sprout.prompt.processing import AnswerProcessor, Choice, ResolvedPrompt
@@ -31,6 +31,25 @@ type ChoiceLabelMap = Mapping[str, str | None]
 type ChoiceChoiceMap = dict[str, str | None]
 
 
+def _instruction_footer(instruction: str) -> Window:
+    control = FormattedTextControl([("", "  "), ("class:hint", instruction)])
+    return Window(
+        content=control,
+        always_hide_cursor=True,
+        wrap_lines=True,
+        dont_extend_height=True,
+        get_line_prefix=lambda _line_number, wrap_count: "  " if wrap_count else "",
+    )
+
+
+def _application_windows(body: Window, instruction: str) -> list[Window]:
+    windows = [body]
+    if instruction:
+        windows.append(_instruction_footer(instruction))
+
+    return windows
+
+
 class TerminalQuestion:
     def __init__(self, question: Question, resolved: ResolvedPrompt, style: Style) -> None:
         self.question = question
@@ -43,28 +62,28 @@ class TerminalQuestion:
         question_text = Text(self.question.prompt, style=self.style.prompt.text_style)
         question_text.stylize("bold")
         header += question_text
+        console.print(header)
 
         if self.question.help:
-            header.append(
-                f" - {self.question.help}",
-                style=self.style.prompt.help_style,
+            help_text = Text(self.question.help, style=self.style.prompt.help_style)
+            console.print(Padding(help_text, (0, 0, 0, 2)))
+
+    def should_use_inline(self) -> bool:
+        if not self.resolved.inline_choice_enabled:
+            return False
+
+        parts: list[str] = []
+        for value, label in self.resolved.choices:
+            icon = (
+                self.style.inline.selected_icon
+                if value == self.resolved.default_value
+                else self.style.inline.unselected_icon
             )
+            parts.append(f"{icon} {label or value}")
 
-        instruction = (
-            self.style.menu.instruction_multi
-            if self.question.multiselect
-            else self.style.menu.instruction_single
-        )
-        if self.resolved.has_choices and instruction:
-            header.append("  ")
-            header.append(instruction, style=self.style.menu.instruction_style)
+        row = self.style.inline.separator.join(parts)
 
-        inline_preview = self._format_inline_preview()
-        if inline_preview:
-            header.append(" ")
-            header.append(inline_preview, style=self.style.default_style)
-
-        console.print(header)
+        return cell_len(f"  {row}") <= console.width
 
     def run_choice_application(
         self,
@@ -111,7 +130,7 @@ class TerminalQuestion:
                 caret = (
                     self.style.menu.caret_icon
                     if idx == pointer_box[0]
-                    else " " * len(self.style.menu.caret_icon)
+                    else " " * cell_len(self.style.menu.caret_icon)
                 )
                 caret_style = "class:caret" if idx == pointer_box[0] else ""
                 bullet_selected = (
@@ -135,10 +154,39 @@ class TerminalQuestion:
 
             return fragments
 
+        def _line_prefix(line_number: int, wrap_count: int) -> str:
+            if wrap_count == 0 or line_number >= len(items):
+                return ""
+
+            bullet_selected = (
+                line_number in selected_box
+                if self.question.multiselect
+                else line_number == pointer_box[0]
+            )
+            bullet = (
+                self.style.menu.bullet_selected_icon
+                if bullet_selected
+                else self.style.menu.bullet_unselected_icon
+            )
+            return " " * (cell_len(self.style.menu.caret_icon) + cell_len(bullet))
+
         body_control = FormattedTextControl(_render)
-        body = Window(content=body_control, always_hide_cursor=True)
+        body = Window(
+            content=body_control,
+            always_hide_cursor=True,
+            wrap_lines=True,
+            dont_extend_height=True,
+            get_line_prefix=_line_prefix,
+        )
+        instruction = (
+            self.style.menu.instruction_multi
+            if self.question.multiselect
+            else self.style.menu.instruction_single
+        )
+        containers = _application_windows(body, instruction)
+
         app: Application[object] = Application(
-            layout=Layout(HSplit([body])),
+            layout=Layout(HSplit(containers)),
             key_bindings=ChoiceKeyBindings(
                 pointer_box=pointer_box,
                 selected_box=selected_box,
@@ -148,6 +196,7 @@ class TerminalQuestion:
             mouse_support=False,
             full_screen=False,
             style=pt_style,
+            erase_when_done=True,
         )
 
         result = app.run()
@@ -179,10 +228,7 @@ class TerminalQuestion:
         )
 
         def _render() -> list[tuple[str, str]]:
-            fragments: list[tuple[str, str]] = [
-                ("class:prefix", self.style.prompt.prefix),
-                ("class:prompt", f"{self.question.prompt} "),
-            ]
+            fragments: list[tuple[str, str]] = [("", "  ")]
 
             for idx, (value, label) in enumerate(items):
                 selected = idx == pointer_box[0]
@@ -202,14 +248,16 @@ class TerminalQuestion:
                 if idx != len(items) - 1:
                     fragments.append(("", self.style.inline.separator))
 
-            if self.style.inline.instruction:
-                fragments.append(("", "  "))
-                fragments.append(("class:hint", self.style.inline.instruction))
-
             return fragments
 
         body_control = FormattedTextControl(_render)
-        body = Window(content=body_control, height=1, always_hide_cursor=True)
+        body = Window(
+            content=body_control,
+            always_hide_cursor=True,
+            wrap_lines=True,
+            dont_extend_height=True,
+            get_line_prefix=lambda _line_number, wrap_count: "  " if wrap_count else "",
+        )
         keybind = KeyBindings()
 
         @keybind.add("left")
@@ -234,12 +282,15 @@ class TerminalQuestion:
         def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
             event.app.exit(exception=KeyboardInterrupt)
 
+        containers = _application_windows(body, self.style.inline.instruction)
+
         app: Application[object] = Application(
-            layout=Layout(HSplit([body])),
+            layout=Layout(HSplit(containers)),
             key_bindings=keybind,
             mouse_support=False,
             full_screen=False,
             style=pt_style,
+            erase_when_done=True,
         )
 
         result = app.run()
@@ -250,7 +301,7 @@ class TerminalQuestion:
 
     def read_text_response(self, default_value: DefaultValue) -> str:
         if supports_live_interaction():
-            session: PromptSession[str] = PromptSession()
+            session: PromptSession[str] = PromptSession(erase_when_done=True)
             if default_value not in (None, "", []):
                 default_text = str(default_value)
                 return session.prompt(
@@ -262,21 +313,6 @@ class TerminalQuestion:
             return session.prompt(f"{self.style.input_prefix} ")
 
         return console.input(f"[bold green]{self.style.input_prefix} [/bold green]").strip()
-
-    def _format_inline_preview(self) -> str:
-        if not self.resolved.inline_choice_enabled or not self.resolved.choices:
-            return ""
-
-        parts: list[str] = []
-        for value, label in self.resolved.choices:
-            icon = (
-                self.style.inline.selected_icon
-                if value == self.resolved.default_value
-                else self.style.inline.unselected_icon
-            )
-            parts.append(f"{icon} {label or value}")
-
-        return self.style.inline.separator.join(parts)
 
 
 @dataclass
@@ -560,17 +596,6 @@ def print_text_summary(value: str, style: Style) -> None:
     console.print(Text(f"{style.summary.prefix}{value}", style=style.summary.selected_style))
 
 
-def highlight_prompt_line(value: str, style: Style) -> None:
-    styled = Text(f"{style.input_prefix} {value}", style=style.summary.selected_style)
-    controls = (
-        Control((ControlType.CURSOR_UP, 1)),
-        Control(ControlType.CARRIAGE_RETURN),
-        Control((ControlType.ERASE_IN_LINE, 2)),
-    )
-    console.control(*controls)
-    console.print(styled)
-
-
 @dataclass
 class DefaultPlaceholderBindings:
     default_text: str
@@ -664,7 +689,6 @@ __all__ = [
     "FallbackChoicePrompt",
     "TerminalQuestion",
     "console",
-    "highlight_prompt_line",
     "print_choice_summary",
     "print_error",
     "print_text_summary",
