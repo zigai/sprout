@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
+from io import StringIO
 
 import pytest
+from prompt_toolkit.application import create_app_session
+from prompt_toolkit.data_structures import Size
+from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.output.vt100 import Vt100_Output
+from rich.cells import cell_len
+from rich.console import Console
 
-from sprout.prompt.processing import AnswerProcessor, apply_parser, run_validator
+from sprout.prompt.processing import AnswerProcessor, ResolvedPrompt, apply_parser, run_validator
 from sprout.prompt.question import Question
 from sprout.prompt.session import QuestionPrompt
-from sprout.prompt.style import Style
+from sprout.prompt.style import InlineStyle, MenuStyle, Style
 from sprout.prompt.terminal import (
     DefaultPlaceholderBindings,
     FallbackChoicePrompt,
+    TerminalQuestion,
     as_choice_values,
     fallback_default_values,
     fallback_lookup_maps,
@@ -281,3 +290,262 @@ def test_fallback_choice_multiselect_retries_on_unknown(
     assert any("Unknown choice" in error for error in errors)
     assert summaries
     assert summaries[-1] == ["tests", "lint"]
+
+
+_ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+
+
+def _rendered_application_lines(output: str) -> list[str]:
+    rendered = output[: output.rfind("\x1b[J")]
+    return [line for line in _ANSI_ESCAPE.sub("", rendered).splitlines() if line]
+
+
+def test_print_header_separates_and_indents_wrapped_help(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = StringIO()
+    capture = Console(file=stream, force_terminal=False, width=32)
+    monkeypatch.setattr("sprout.prompt.terminal.console", capture)
+    question = Question(
+        key="project",
+        prompt="Choose a project",
+        help="This help sentence is long enough to wrap across multiple lines.",
+        choices=[("one", "First"), ("two", "Second")],
+    )
+    terminal = TerminalQuestion(
+        question,
+        ResolvedPrompt.from_question(question, {}),
+        Style(),
+    )
+
+    terminal.print_header()
+
+    lines = stream.getvalue().splitlines()
+    assert lines[0].rstrip() == "? Choose a project"
+    assert len(lines[1:]) > 1
+    assert all(line.startswith("  ") for line in lines[1:])
+    assert "First" not in stream.getvalue()
+    assert "Enter select" not in stream.getvalue()
+
+
+def test_question_prompt_shows_header_for_live_inline_choice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    summaries: list[object] = []
+    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
+    monkeypatch.setattr(
+        TerminalQuestion,
+        "print_header",
+        lambda _terminal: events.append("header"),
+    )
+    monkeypatch.setattr(TerminalQuestion, "should_use_inline", lambda _terminal: True)
+    monkeypatch.setattr(
+        TerminalQuestion,
+        "run_inline_application",
+        lambda _terminal: events.append("inline") or "no",
+    )
+    monkeypatch.setattr(
+        "sprout.prompt.session.print_choice_summary",
+        lambda _question, value, labels, _style: summaries.append((value, labels[value])),
+    )
+    question = Question.yes_no(
+        key="publish",
+        prompt="Publish?",
+        help_text="Requires credentials.",
+    )
+
+    result = QuestionPrompt(question, {}, Style()).ask()
+
+    assert result is False
+    assert events == ["header", "inline"]
+    assert summaries == [("no", "No")]
+
+
+@pytest.mark.parametrize(
+    ("width", "expected_branch"),
+    [(20, "inline"), (19, "menu")],
+)
+def test_question_prompt_selects_inline_only_when_choice_row_fits(
+    monkeypatch: pytest.MonkeyPatch,
+    width: int,
+    expected_branch: str,
+) -> None:
+    stream = StringIO()
+    monkeypatch.setattr(
+        "sprout.prompt.terminal.console",
+        Console(file=stream, force_terminal=False, width=width),
+    )
+    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
+    monkeypatch.setattr(TerminalQuestion, "print_header", lambda _terminal: None)
+    calls: list[object] = []
+    monkeypatch.setattr(
+        TerminalQuestion,
+        "run_inline_application",
+        lambda _terminal: calls.append("inline") or "alpha",
+    )
+
+    def fake_menu(
+        _terminal: TerminalQuestion,
+        choices: object,
+        default: object,
+    ) -> str:
+        calls.append(("menu", list(choices), default))
+        return "alpha"
+
+    monkeypatch.setattr(TerminalQuestion, "run_choice_application", fake_menu)
+    monkeypatch.setattr(
+        "sprout.prompt.session.print_choice_summary",
+        lambda *_args: None,
+    )
+    style = Style(
+        inline=InlineStyle(
+            selected_icon="◆",
+            unselected_icon="◇",
+            separator=" <-> ",
+        )
+    )
+    choices = [("alpha", "Alpha"), ("beta", "Beta")]
+    question = Question(
+        key="kind",
+        prompt="Kind",
+        choices=choices,
+        default="alpha",
+    )
+    terminal = TerminalQuestion(
+        question,
+        ResolvedPrompt.from_question(question, {}),
+        style,
+    )
+
+    assert terminal.should_use_inline() is (expected_branch == "inline")
+    result = QuestionPrompt(question, {}, style).ask()
+
+    assert result == "alpha"
+
+    if expected_branch == "inline":
+        assert calls == ["inline"]
+    else:
+        assert calls == [("menu", choices, "alpha")]
+
+
+def test_live_text_prompt_erases_input_and_prints_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summaries: list[str] = []
+    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
+    monkeypatch.setattr(TerminalQuestion, "print_header", lambda _terminal: None)
+    monkeypatch.setattr(
+        TerminalQuestion,
+        "read_text_response",
+        lambda _terminal, _default: "typed response",
+    )
+    monkeypatch.setattr(
+        "sprout.prompt.session.print_text_summary",
+        lambda value, _style: summaries.append(value),
+    )
+    question = Question(key="description", prompt="Description")
+
+    result = QuestionPrompt(question, {}, Style()).ask()
+
+    assert result == "typed response"
+    assert summaries == ["typed response"]
+    from sprout.prompt import session
+
+    assert not hasattr(session, "highlight_prompt_line")
+
+
+def test_inline_application_wraps_footer_and_erases_completed_body() -> None:
+    question = Question(
+        key="confirm",
+        prompt="Confirm",
+        choices=[("yes", "Yes"), ("no", "No")],
+        default="yes",
+    )
+    style = Style(inline=InlineStyle(instruction="←/→ move  Enter select"))
+    terminal = TerminalQuestion(
+        question,
+        ResolvedPrompt.from_question(question, {}),
+        style,
+    )
+    stream = StringIO()
+    output = Vt100_Output(
+        stream,
+        get_size=lambda: Size(rows=12, columns=40),
+        term="xterm",
+    )
+
+    with create_pipe_input() as pipe:
+        pipe.send_text("\x1b[C\r")
+        with create_app_session(input=pipe, output=output):
+            result = terminal.run_inline_application()
+
+    raw = stream.getvalue()
+    lines = _rendered_application_lines(raw)
+    assert result == "no"
+    assert lines == ["  ● Yes / ○ No", "  ←/→ move  Enter select"]
+    assert raw.count(style.inline.instruction) == 1
+    assert all(cell_len(line) <= 40 for line in lines)
+    assert "\x1b[?1049h" not in raw
+    assert raw.rfind("\x1b[J") > raw.rfind(style.inline.instruction)
+
+
+@pytest.mark.parametrize(
+    ("multiselect", "keys", "expected", "instruction"),
+    [
+        (False, "\x1b[B\r", "lint", "↑/↓ move  Enter select"),
+        (
+            True,
+            " \x1b[B \r",
+            ["tests", "lint"],
+            "↑/↓ move  Space toggle  Enter confirm",
+        ),
+    ],
+)
+def test_vertical_application_wraps_footer_and_erases_completed_body(
+    multiselect: bool,
+    keys: str,
+    expected: object,
+    instruction: str,
+) -> None:
+    choices = [("tests", "Run tests"), ("lint", "Lint and format")]
+    question = Question(
+        key="tasks",
+        prompt="Tasks",
+        choices=choices,
+        default=[] if multiselect else "tests",
+        multiselect=multiselect,
+    )
+    style = Style(
+        menu=MenuStyle(
+            instruction_single="↑/↓ move  Enter select",
+            instruction_multi="↑/↓ move  Space toggle  Enter confirm",
+        )
+    )
+    terminal = TerminalQuestion(
+        question,
+        ResolvedPrompt.from_question(question, {}),
+        style,
+    )
+    stream = StringIO()
+    output = Vt100_Output(
+        stream,
+        get_size=lambda: Size(rows=12, columns=40),
+        term="xterm",
+    )
+
+    with create_pipe_input() as pipe:
+        pipe.send_text(keys)
+        with create_app_session(input=pipe, output=output):
+            result = terminal.run_choice_application(choices, question.default)
+
+    raw = stream.getvalue()
+    lines = _rendered_application_lines(raw)
+    assert result == expected
+    assert lines[-1] == f"  {instruction}"
+    body_index = next(idx for idx, line in enumerate(lines) if "Run tests" in line)
+    assert body_index < lines.index(f"  {instruction}")
+    assert raw.count(instruction) == 1
+    assert all(cell_len(line) <= 40 for line in lines)
+    assert "\x1b[?1049h" not in raw
+    assert raw.rfind("\x1b[J") > raw.rfind(instruction)
