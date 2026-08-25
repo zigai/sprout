@@ -9,8 +9,10 @@ import sprout.helpers.validators as validators_module
 import sprout.manifest as manifest_module
 import sprout.prompt.question as question_module
 import sprout.prompt.style as style_module
+import sprout.prompt.terminal as terminal_module
 import sprout.renderer as renderer_module
 from sprout import (
+    DEFAULT_THEME,
     NO_LICENSE,
     CurrentYearExtension,
     GitDefaultsExtension,
@@ -38,6 +40,7 @@ def test_readme_documented_root_imports_resolve_to_owning_modules() -> None:
     assert ManifestContext is manifest_module.ManifestContext
     assert render_templates is renderer_module.render_templates
     assert Style is style_module.Style
+    assert DEFAULT_THEME is terminal_module.DEFAULT_THEME
 
 
 @pytest.mark.parametrize(

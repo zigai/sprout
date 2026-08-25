@@ -17,10 +17,12 @@ from sprout.prompt.question import Question
 from sprout.prompt.session import QuestionPrompt
 from sprout.prompt.style import InlineStyle, MenuStyle, Style
 from sprout.prompt.terminal import (
+    DEFAULT_THEME,
     DefaultPlaceholderBindings,
     FallbackChoicePrompt,
     TerminalQuestion,
     as_choice_values,
+    console,
     fallback_default_values,
     fallback_lookup_maps,
 )
@@ -549,3 +551,13 @@ def test_vertical_application_wraps_footer_and_erases_completed_body(
     assert all(cell_len(line) <= 40 for line in lines)
     assert "\x1b[?1049h" not in raw
     assert raw.rfind("\x1b[J") > raw.rfind(instruction)
+
+
+def test_default_theme_configures_blue_link_and_path_styles() -> None:
+    assert console.get_style("repr.path").color.name == "bright_blue"
+    assert console.get_style("repr.filename").color.name == "bright_blue"
+    assert console.get_style("repr.url").color.name == "bright_blue"
+    assert console.get_style("repr.url").underline is True
+    assert DEFAULT_THEME.styles["repr.path"].color.name == "bright_blue"
+    assert DEFAULT_THEME.styles["repr.filename"].color.name == "bright_blue"
+    assert DEFAULT_THEME.styles["markdown.link"].color.name == "bright_blue"
