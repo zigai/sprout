@@ -666,6 +666,7 @@ source = { editable = "." }
 dependencies = [
     { name = "interfacy" },
     { name = "jinja2" },
+    { name = "platformdirs" },
     { name = "prompt-toolkit" },
     { name = "rich" },
 ]
@@ -707,6 +708,7 @@ requires-dist = [
     { name = "coverage", marker = "extra == 'test'", specifier = ">=7.14.1" },
     { name = "interfacy", specifier = ">=0.7.0" },
     { name = "jinja2", specifier = ">=3.0" },
+    { name = "platformdirs", specifier = ">=4.5.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pyrefly", marker = "extra == 'dev'", specifier = ">=1.0.0" },

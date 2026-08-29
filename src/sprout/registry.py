@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
+
+from platformdirs import user_config_path
 
 from sprout.errors import SproutRegistryError
 
@@ -94,10 +95,7 @@ class TemplateRegistry:
 
 
 def default_registry_path() -> Path:
-    config_home = os.environ.get("XDG_CONFIG_HOME", "").strip()
-    root = Path(config_home).expanduser() if config_home else Path.home() / ".config"
-
-    return root / "sprout" / "templates.json"
+    return user_config_path("sprout", appauthor=False) / "templates.json"
 
 
 def normalize_template_name(name: str) -> str:
