@@ -102,8 +102,14 @@ def list_templates() -> int:
         console.print("No trusted templates have been added.")
         return 0
 
-    table = Table()
-    table.add_column("Name", style="bold cyan")
+    table = Table(
+        box=None,
+        collapse_padding=True,
+        header_style="",
+        pad_edge=False,
+        padding=(0, 1),
+    )
+    table.add_column("Name")
     table.add_column("Source")
     for entry in entries:
         table.add_row(entry.name, entry.source)
