@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from io import StringIO
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 from sprout.cli.app import main
 from sprout.prompt.question import Question
 from sprout.prompt.style import Style
-from sprout.registry import TemplateRegistry
+from sprout.registry import TemplateRegistry, TrustedTemplate
 from sprout.template_source import TemplateSource
 from tests.support.template_factory import TemplateFactory
 
@@ -152,9 +154,30 @@ def test_list_displays_entries_in_name_order(
 
     assert main(["list"]) == 0
     output = capsys.readouterr().out
+    assert "│" not in output
+    assert "┌" not in output
+    assert output.splitlines()[:3] == [
+        "Name  Source     ",
+        "Alpha owner/alpha",
+        "zulu  owner/zulu ",
+    ]
     assert output.index("Alpha") < output.index("zulu")
     assert "owner/alpha" in output
     assert "owner/zulu" in output
+
+
+def test_list_does_not_style_terminal_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    TemplateRegistry().save(TrustedTemplate(name="demo", source="owner/demo"))
+    output = StringIO()
+    terminal = Console(file=output, force_terminal=True, color_system="standard")
+    monkeypatch.setattr("sprout.cli.commands.console", terminal)
+
+    assert main(["list"]) == 0
+    assert "\x1b[" not in output.getvalue()
 
 
 def test_list_reports_empty_registry(
