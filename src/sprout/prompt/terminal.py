@@ -287,9 +287,7 @@ class TerminalQuestion:
         def _confirm(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
             event.app.exit(result=items[pointer_box[0]][0])
 
-        @keybind.add("c-c")
-        def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
-            event.app.exit(exception=KeyboardInterrupt)
+        _bind_interrupt_key(keybind)
 
         containers = _application_windows(body, self.style.inline.instruction)
 
@@ -396,9 +394,7 @@ class ChoiceKeyBindings:
             event.app.exit(result=result)
 
     def _bind_interrupt_key(self) -> None:
-        @self.keybind.add("c-c")
-        def _interrupt(event: KeyPressEvent) -> None:  # pragma: no cover - interactive
-            event.app.exit(exception=KeyboardInterrupt)
+        _bind_interrupt_key(self.keybind)
 
 
 def _bind_interrupt_key(keybind: KeyBindings) -> None:
