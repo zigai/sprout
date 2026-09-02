@@ -67,10 +67,7 @@ def test_initialized_scaffold_generates_a_project(tmp_path: Path) -> None:
 
 def test_add_records_source_without_resolving_template(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-
     def fail_prepare(_cls: type[TemplateSource], _source: str) -> TemplateSource:
         raise AssertionError("add must not prepare the template source")
 
@@ -84,9 +81,7 @@ def test_add_records_source_without_resolving_template(
 
 def test_add_prompts_with_derived_name(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setattr("sprout.cli.commands.supports_live_interaction", lambda: True)
     defaults: list[object] = []
 
@@ -104,21 +99,14 @@ def test_add_prompts_with_derived_name(
     assert TemplateRegistry().find("repo") is not None
 
 
-def test_add_requires_name_when_interaction_is_unavailable(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-
+def test_add_requires_name_when_interaction_is_unavailable() -> None:
     with pytest.raises(SystemExit, match="--name is required"):
         main(["add", "owner/repo"])
 
 
 def test_add_duplicate_requires_and_honors_confirmation(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     main(["add", "owner/one", "--name", "demo"])
 
     with pytest.raises(SystemExit, match="interactive confirmation"):
@@ -143,11 +131,8 @@ def test_add_duplicate_requires_and_honors_confirmation(
 
 
 def test_list_displays_entries_in_name_order(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     main(["add", "owner/zulu", "--name", "zulu"])
     main(["add", "owner/alpha", "--name", "Alpha"])
     capsys.readouterr()
@@ -168,9 +153,7 @@ def test_list_displays_entries_in_name_order(
 
 def test_list_does_not_style_terminal_output(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     TemplateRegistry().save(TrustedTemplate(name="demo", source="owner/demo"))
     output = StringIO()
     terminal = Console(file=output, force_terminal=True, color_system="standard")
@@ -181,22 +164,15 @@ def test_list_does_not_style_terminal_output(
 
 
 def test_list_reports_empty_registry(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-
     assert main(["list"]) == 0
     assert "No trusted templates" in capsys.readouterr().out
 
 
 def test_new_help_lists_trusted_templates(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     main(["add", "owner/zulu", "--name", "zulu"])
     main(["add", "owner/alpha", "--name", "Alpha"])
     capsys.readouterr()
@@ -211,12 +187,8 @@ def test_new_help_lists_trusted_templates(
 
 
 def test_new_help_explains_how_to_add_trusted_templates(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-
     with pytest.raises(SystemExit) as help_exit:
         main(["new", "--help"])
 
@@ -228,11 +200,9 @@ def test_new_help_explains_how_to_add_trusted_templates(
 
 
 def test_registered_local_alias_generates_project(
-    monkeypatch: pytest.MonkeyPatch,
     make_template: TemplateFactory,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     template = make_template("questions = []")
     destination = tmp_path / "generated"
     main(["add", str(template), "--name", "demo"])
@@ -246,7 +216,6 @@ def test_registered_remote_alias_is_prepared_fresh_for_each_run(
     make_template: TemplateFactory,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     template = make_template("questions = []")
     main(["add", "owner/repo", "--name", "demo"])
     prepared_sources: list[str] = []

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from platformdirs import user_config_path
 
 from sprout.errors import SproutRegistryError
 from sprout.registry import (
@@ -15,13 +16,24 @@ from sprout.registry import (
 )
 
 
-def test_default_registry_path_honors_xdg_config_home(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+def test_default_registry_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    target_config = tmp_path / "custom-config"
+    recorded_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
-    assert default_registry_path() == tmp_path / "sprout" / "templates.json"
+    def fake_user_config_path(*args: object, **kwargs: object) -> Path:
+        recorded_calls.append((args, kwargs))
+        return target_config
+
+    monkeypatch.setattr("sprout.registry.user_config_path", fake_user_config_path)
+
+    assert default_registry_path() == target_config / "templates.json"
+    assert recorded_calls == [(("sprout",), {"appauthor": False})]
+
+
+def test_default_registry_path_matches_platform_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.undo()
+
+    assert default_registry_path() == user_config_path("sprout", appauthor=False) / "templates.json"
 
 
 def test_registry_round_trips_entries_in_name_order(tmp_path: Path) -> None:

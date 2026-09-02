@@ -9,6 +9,16 @@ import pytest
 from tests.support.template_factory import TemplateFactory
 
 
+@pytest.fixture(autouse=True)
+def isolate_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+
+    def fake_user_config_path(*args: object, **kwargs: object) -> Path:
+        return config_dir
+
+    monkeypatch.setattr("sprout.registry.user_config_path", fake_user_config_path)
+
+
 @pytest.fixture
 def make_template(tmp_path: Path) -> TemplateFactory:
     counter = 0
