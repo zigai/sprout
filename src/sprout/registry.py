@@ -112,7 +112,8 @@ def normalize_template_source(source: str) -> str:
         raise SproutRegistryError("template source must not be empty.")
 
     candidate = Path(normalized).expanduser()
-    if candidate.exists() or _is_explicit_local_path(normalized):
+    is_explicit_local = candidate.is_absolute() or normalized.startswith(("./", "../", "~/"))
+    if candidate.exists() or is_explicit_local:
         return str(candidate.resolve())
 
     return normalized
@@ -131,10 +132,6 @@ def derive_template_name(source: str) -> str:
         raise SproutRegistryError("could not derive a template name; provide --name.")
 
     return name
-
-
-def _is_explicit_local_path(source: str) -> bool:
-    return Path(source).is_absolute() or source.startswith(("./", "../", "~/"))
 
 
 def _parse_config(raw_config: JsonValue, path: Path) -> list[TrustedTemplate]:
