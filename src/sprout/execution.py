@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from jinja2 import Environment
-from jinja2.ext import Extension
 from rich.text import Text
 
 from sprout.errors import SproutGenerationError
@@ -14,7 +12,6 @@ from sprout.manifest import (
     CreatedPaths,
     Manifest,
     ManifestContext,
-    SkipPredicate,
     TitleCallable,
 )
 from sprout.manifest_loader import (
@@ -22,7 +19,7 @@ from sprout.manifest_loader import (
     normalize_apply_result,
     resolve_questions,
 )
-from sprout.prompt.question import DefaultValue, Question
+from sprout.prompt.question import DefaultValue
 from sprout.prompt.session import collect_answers, confirm_overwrite
 from sprout.prompt.style import Style
 from sprout.prompt.terminal import console
@@ -45,24 +42,21 @@ def ensure_destination(path: Path, *, force: bool, style: Style | None = None) -
 
     try:
         destination_exists = path.exists()
-        destination_is_file = destination_exists and path.is_file()
-        destination_is_non_empty = (
-            destination_exists and not destination_is_file and not force and any(path.iterdir())
-        )
+        if destination_exists and path.is_file():
+            raise SproutGenerationError(
+                f"destination '{path}' is a file. Provide a directory path."
+            )
 
         if not destination_exists:
             path.mkdir(parents=True, exist_ok=True)
+            return
+
+        if not force and any(path.iterdir()):
+            console.print(Text(f"Destination '{path}' is not empty.", style="bold yellow"))
+            if not confirm_overwrite(path, style=style):
+                raise SproutGenerationError("aborted by user.")
     except OSError as e:
         raise SproutGenerationError(f"failed to prepare destination '{path}'.") from e
-
-    if destination_is_file:
-        raise SproutGenerationError(f"destination '{path}' is a file. Provide a directory path.")
-
-    if destination_is_non_empty:
-        console.print(Text(f"Destination '{path}' is not empty.", style="bold yellow"))
-
-        if not confirm_overwrite(path, style=style):
-            raise SproutGenerationError("aborted by user.")
 
 
 def summarize(created: Sequence[Path], destination: Path | None = None) -> None:
@@ -93,65 +87,6 @@ def resolve_template_directory(root: Path, declared: str | Path | None) -> Path:
     path = Path(declared)
 
     return path if path.is_absolute() else (root / path).resolve()
-
-
-def run_template(
-    *,
-    template_dir: Path,
-    destination: Path,
-    question_builder: Callable[[Environment, Path], Sequence[Question]],
-    skip: SkipPredicate | None = None,
-    extensions: Sequence[type[Extension]] | None = None,
-    style: Style | None = None,
-    initial_answers: dict[str, DefaultValue] | None = None,
-    force: bool = False,
-    banner: Callable[[], None] | None = None,
-    summary: Callable[[Sequence[Path]], None] | None = None,
-) -> tuple[dict[str, DefaultValue], Sequence[Path]]:
-    """
-    Generate files from a template directory and return answers with created paths.
-
-    Args:
-        template_dir (Path): Template directory that contains files to render.
-        destination (Path): Output directory for generated files.
-        question_builder (Callable[[Environment, Path], Sequence[Question]]): Callable that builds
-            questions from the Jinja environment and destination path.
-        skip (SkipPredicate | None): Optional predicate that skips files by relative path.
-        extensions (Sequence[type[Extension]] | None): Optional Jinja extension classes.
-        style (Style | None): Optional style overrides used while prompting.
-        initial_answers (dict[str, DefaultValue] | None): Optional pre-filled answers keyed by question key.
-        force (bool): Whether to skip overwrite confirmation for non-empty destinations.
-        banner (Callable[[], None] | None): Optional callback invoked before prompting.
-        summary (Callable[[Sequence[Path]], None] | None): Optional callback used to print a
-            generation summary.
-
-    Raises:
-        SproutGenerationError: If `template_dir` does not exist or destination checks fail.
-    """
-    if banner:
-        banner()
-
-    if not template_dir.exists():
-        raise SproutGenerationError(
-            f"Template directory not found. Expected {template_dir} to exist."
-        )
-
-    answers, created = execute_manifest(
-        Manifest(
-            questions=question_builder,
-            template_dir=".",
-            skip=skip,
-            style=style,
-            extensions=extensions,
-        ),
-        template_dir=template_dir,
-        destination=destination,
-        force=force,
-        initial_answers=initial_answers,
-        summary=summary,
-    )
-
-    return answers, list(created or ())
 
 
 class ManifestExecution:
@@ -217,11 +152,7 @@ class ManifestExecution:
 
     def _create_files(self) -> CreatedPaths:
         if self.manifest.apply is not None:
-            return invoke_apply(
-                self.manifest.apply,
-                context=self._context(),
-            )
-
+            return normalize_apply_result(self.manifest.apply(self._context()))
         if not self.actual_template_dir.exists():
             raise SproutGenerationError(
                 f"Template directory not found. Expected {self.actual_template_dir} to exist."
@@ -285,6 +216,10 @@ def execute_manifest(
 def normalize_created_paths(created: Sequence[Path | str], destination: Path) -> list[Path]:
     results: list[Path] = []
     for item in created:
+        if isinstance(item, Path) and not item.is_absolute():
+            results.append(item)
+            continue
+
         path = Path(item)
         if path.is_absolute():
             try:
@@ -319,15 +254,9 @@ def display_title(
         console.print(title)
         return
 
-    result = invoke_context_hook(title, context, hook_name="title")
-
-    if result is None:
-        return
-
-    if not isinstance(result, str):
-        raise SproutGenerationError("title() must return a string or None.")
-
-    console.print(result)
+    result = title(context)
+    if result is not None:
+        console.print(result)
 
 
 __all__ = [
@@ -337,6 +266,5 @@ __all__ = [
     "normalize_created_paths",
     "render_templates",
     "resolve_template_directory",
-    "run_template",
     "summarize",
 ]
