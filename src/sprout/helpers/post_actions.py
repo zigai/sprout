@@ -68,7 +68,7 @@ class ProjectPostActions:
     ) -> None:
         self.destination = destination
         self.answers = answers or {}
-        self.console = _resolve_console(console)
+        self.console = console if console is not None else _DEFAULT_CONSOLE
         self.options = options or ProjectPostActionOptions()
         self._git_repository_initialized = False
 
@@ -236,7 +236,7 @@ class ProjectPostActions:
         if description:
             command.extend(["--description", description])
 
-        git_repository_ready = self.ensure_git_repo()
+        git_repository_ready = self._git_repository_initialized or self.ensure_git_repo()
         if git_repository_ready:
             command.extend(
                 ["--source", str(self.destination), "--remote", self.options.remote_name]
@@ -489,13 +489,6 @@ def _normalise_visibility(value: str, *, default: GitHubVisibility) -> GitHubVis
         return "public"
 
     return default
-
-
-def _resolve_console(console: SupportsConsolePrint | None) -> SupportsConsolePrint:
-    if console is not None:
-        return console
-
-    return _DEFAULT_CONSOLE
 
 
 __all__ = [
