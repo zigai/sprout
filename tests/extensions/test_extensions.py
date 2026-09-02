@@ -39,28 +39,17 @@ def test_current_year_extension_sets_utc_year() -> None:
 
 
 def test_git_defaults_extension_sets_environment_globals(monkeypatch: pytest.MonkeyPatch) -> None:
+    config_map: dict[str, str] = {
+        "user.name": "Alice",
+        "user.email": "alice@example.com",
+    }
     monkeypatch.setattr(
-        GitDefaultsExtension,
-        "_find_repo_config_path",
-        lambda self, _start: None,
+        "sprout.extensions.git_defaults._query_git_config",
+        lambda key: config_map.get(key, ""),
     )
     monkeypatch.setattr(
-        GitDefaultsExtension,
-        "_collect_git_config_paths",
-        lambda self, _path: (),
-    )
-    monkeypatch.setattr(
-        GitDefaultsExtension,
-        "_get_git_config",
-        lambda self, key: {
-            "user.name": "Alice",
-            "user.email": "alice@example.com",
-        }.get(key, ""),
-    )
-    monkeypatch.setattr(
-        GitDefaultsExtension,
-        "_get_github_username",
-        lambda self: "alice-gh",
+        "sprout.extensions.git_defaults._query_local_git_remotes",
+        lambda: ["https://github.com/alice-gh/project.git"],
     )
 
     env = Environment()
@@ -71,107 +60,46 @@ def test_git_defaults_extension_sets_environment_globals(monkeypatch: pytest.Mon
     assert env.globals["github_username"] == "alice-gh"
 
 
-def test_collect_git_config_paths_includes_repo_home_and_xdg(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    home = tmp_path / "home"
-    xdg = tmp_path / "xdg"
-    repo = tmp_path / "repo"
-    home.mkdir()
-    xdg.mkdir()
-    repo.mkdir()
+def test_git_defaults_extension_handles_missing_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sprout.extensions.git_defaults.shutil.which", lambda name: None)
 
-    home_gitconfig = home / ".gitconfig"
-    xdg_git_config = xdg / "git" / "config"
-    repo_config = repo / "config"
-    home_gitconfig.write_text("[user]\nname = Home\n", encoding="utf-8")
-    xdg_git_config.parent.mkdir(parents=True)
-    xdg_git_config.write_text("[user]\nemail = xdg@example.com\n", encoding="utf-8")
-    repo_config.write_text("[user]\nname = Repo\n", encoding="utf-8")
+    env = Environment()
+    GitDefaultsExtension(env)
 
-    monkeypatch.setattr("sprout.extensions.git_defaults.Path.home", lambda: home)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
-
-    extension = object.__new__(GitDefaultsExtension)
-    paths = extension._collect_git_config_paths(repo_config)
-
-    assert paths == (repo_config, home_gitconfig, xdg_git_config)
+    assert env.globals["git_user_name"] == ""
+    assert env.globals["git_user_email"] == ""
+    assert env.globals["github_username"] == ""
 
 
-def test_find_repo_config_path_supports_dot_git_directory(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    nested = project / "src" / "pkg"
-    nested.mkdir(parents=True)
-    config = project / ".git" / "config"
-    config.parent.mkdir()
-    config.write_text("[core]\nrepositoryformatversion = 0\n", encoding="utf-8")
-
-    extension = object.__new__(GitDefaultsExtension)
-    found = extension._find_repo_config_path(nested)
-
-    assert found == config
-
-
-def test_find_repo_config_path_supports_dot_git_file(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    nested = project / "src"
-    nested.mkdir(parents=True)
-    git_modules = tmp_path / "git-store" / "submodule"
-    git_modules.mkdir(parents=True)
-    config = git_modules / "config"
-    config.write_text("[core]\nrepositoryformatversion = 0\n", encoding="utf-8")
-
-    (project / ".git").write_text(f"gitdir: {git_modules}\n", encoding="utf-8")
-
-    extension = object.__new__(GitDefaultsExtension)
-    found = extension._find_repo_config_path(nested)
-
-    assert found == config
-
-
-def test_resolve_gitdir_and_load_config_edge_cases(tmp_path: Path) -> None:
-    extension = object.__new__(GitDefaultsExtension)
-
-    project = tmp_path / "project"
-    project.mkdir()
-    git_file = project / ".git"
-    git_file.write_text("gitdir: .git/modules/main\n", encoding="utf-8")
-    resolved = extension._resolve_gitdir(git_file)
-    assert resolved == (project / ".git" / "modules" / "main").resolve()
-
-    invalid_git_file = project / ".git-invalid"
-    invalid_git_file.write_text("not-a-gitdir\n", encoding="utf-8")
-    assert extension._resolve_gitdir(invalid_git_file) is None
-
-    invalid_config = project / "invalid-config"
-    invalid_config.write_bytes(b"\xff")
-    assert extension._load_config(invalid_config) is None
-
-
-def test_get_git_config_and_github_username(tmp_path: Path) -> None:
-    config_a = tmp_path / "a.ini"
-    config_b = tmp_path / "b.ini"
-    config_a.write_text("[user]\nname = \n", encoding="utf-8")
-    config_b.write_text("[user]\nname = Bob\nemail = bob@example.com\n", encoding="utf-8")
-
-    extension = object.__new__(GitDefaultsExtension)
-    extension._config_paths = (config_a, config_b)
-    extension._repo_config_path = config_b
-
-    assert extension._get_git_config("user.name") == "Bob"
-    assert extension._get_git_config("invalid") == ""
-
-    config_b.write_text(
-        '[remote "origin"]\nurl = git@github.com:zigai/sprout.git\n',
-        encoding="utf-8",
+def test_get_github_username_from_ssh_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    config_map: dict[str, str] = {"user.name": "Bob"}
+    monkeypatch.setattr(
+        "sprout.extensions.git_defaults._query_git_config",
+        lambda key: config_map.get(key, ""),
     )
-    assert extension._get_github_username() == "zigai"
+    monkeypatch.setattr(
+        "sprout.extensions.git_defaults._query_local_git_remotes",
+        lambda: ["git@github.com:bob-org/repo.git"],
+    )
+
+    env = Environment()
+    GitDefaultsExtension(env)
+
+    assert env.globals["github_username"] == "bob-org"
 
 
 def test_get_github_username_falls_back_to_user_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    extension = object.__new__(GitDefaultsExtension)
-    extension._repo_config_path = None
-    monkeypatch.setattr(extension, "_get_git_config", lambda _key: "fallback-user")
+    config_map: dict[str, str] = {"user.name": "fallback-user"}
+    monkeypatch.setattr(
+        "sprout.extensions.git_defaults._query_git_config",
+        lambda key: config_map.get(key, ""),
+    )
+    monkeypatch.setattr(
+        "sprout.extensions.git_defaults._query_local_git_remotes",
+        lambda: ["https://gitlab.com/group/repo.git"],
+    )
 
-    assert extension._get_github_username() == "fallback-user"
+    env = Environment()
+    GitDefaultsExtension(env)
+
+    assert env.globals["github_username"] == "fallback-user"
