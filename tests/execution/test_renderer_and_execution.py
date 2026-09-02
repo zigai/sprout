@@ -310,6 +310,33 @@ def test_execute_manifest_with_apply_returning_none(tmp_path: Path) -> None:
     assert created is None
 
 
+def test_execute_manifest_with_apply_returning_single_path(tmp_path: Path) -> None:
+    template_root = tmp_path / "template-source"
+    template_root.mkdir()
+    destination = tmp_path / "dest"
+
+    def apply(context: ManifestContext) -> Path:
+        file_path = context.destination / "output.txt"
+        file_path.write_text("hello", encoding="utf-8")
+        return file_path
+
+    manifest = Manifest(
+        questions=[],
+        apply=apply,
+        template_dir="template",
+    )
+
+    answers, created = execute_manifest(
+        manifest,
+        template_dir=template_root,
+        destination=destination,
+        initial_answers={},
+    )
+
+    assert answers == {}
+    assert created == [Path("output.txt")]
+
+
 def test_execute_manifest_errors_when_template_dir_missing(tmp_path: Path) -> None:
     template_root = tmp_path / "template-source"
     template_root.mkdir()
