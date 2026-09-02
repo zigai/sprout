@@ -103,10 +103,7 @@ def _consume_optional_value(args: Sequence[str], index: int) -> int:
 
 
 def _has_help_option(args: Sequence[str] | None) -> bool:
-    if not args:
-        return False
-
-    return any(value in _HELP_OPTIONS for value in args)
+    return any(value in _HELP_OPTIONS for value in args) if args else False
 
 
 def _extract_template_destination(
@@ -206,10 +203,6 @@ def _format_trusted_templates_help(templates: Sequence[TrustedTemplate]) -> str:
     return f"Trusted templates added with sprout add:\n{entries}"
 
 
-def _capitalize_help_text(text: str) -> str:
-    return text[:1].upper() + text[1:]
-
-
 def _format_question_help(question: Question) -> str:
     description = question.prompt
     if question.help:
@@ -218,7 +211,7 @@ def _format_question_help(question: Question) -> str:
     if question.multiselect:
         description = f"{description} (multiple values allowed)"
 
-    return _capitalize_help_text(description)
+    return description[:1].upper() + description[1:]
 
 
 def _flag_from_question_key(key: str) -> str:
