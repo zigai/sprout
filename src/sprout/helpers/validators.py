@@ -9,7 +9,11 @@ from sprout.prompt.validation import ValidatorAnswers
 SSH_URL_PATTERN = re.compile(r"^git@[\w.-]+:[\w./-]+$")
 NPM_PACKAGE_NAME_PATTERN = re.compile(r"(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*")
 REPOSITORY_NAME_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
-SEMVER_PATTERN = re.compile(r"\d+\.\d+\.\d+")
+SEMVER_PATTERN = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
+    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+)
 
 
 def validate_github_repository_url(
