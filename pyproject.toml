@@ -39,7 +39,7 @@ dev = [
     "pre-commit>=4.6.0",
     "pyrefly>=1.0.0",
     "codespell>=2.4.2",
-    "rattle-lint>=2.5.1",
+    "rattle-lint>=3.0.0",
 ]
 
 [project.urls]
@@ -255,5 +255,5 @@ dev = [
     "pre-commit>=4.6.0",
     "pyrefly>=1.0.0",
     "codespell>=2.4.2",
-    "rattle-lint>=2.5.1",
+    "rattle-lint>=3.0.0",
 ]
