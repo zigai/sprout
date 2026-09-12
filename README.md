@@ -1,4 +1,4 @@
-# sprout
+# Sprout
 
 [![Tests](https://github.com/zigai/sprout/actions/workflows/tests.yml/badge.svg)](https://github.com/zigai/sprout/actions/workflows/tests.yml)
 [![PyPI version](https://badge.fury.io/py/sprout-template.svg)](https://badge.fury.io/py/sprout-template)
@@ -35,8 +35,16 @@ sprout new <template-path> <project-path> --project-name demo
 
 ## Install
 
+Install globally with `uv`:
+
 ```bash
 uv tool install sprout-template
+```
+
+Or run directly without installing using `uvx`:
+
+```bash
+uvx --from sprout-template sprout <command>
 ```
 
 ## Usage
@@ -72,8 +80,8 @@ Pass a directory to initialize it elsewhere. Existing scaffold files are never o
 Store a reusable name for any supported template source:
 
 ```bash
-sprout add zigai/python-project-template --name python
-sprout new python ./my-project
+sprout add zigai/python-project-template --name py
+sprout new py ./my-project
 sprout list
 ```
 
@@ -106,8 +114,8 @@ Question(
     prompt="Project name",
     help="Used for package metadata and generated paths",
     default="demo",
+    metavar="name",
 )
-```
 
 `key` is the answer dictionary key. It also becomes the CLI flag name.
 
@@ -175,6 +183,8 @@ By default, yes/no questions are exposed as Boolean CLI flags:
 sprout new <template-path> <project-path> --git-init
 sprout new <template-path> <project-path> --no-git-init
 ```
+
+In `--help`, paired boolean flags are documented using bracket negation: `--[no-]git-init`.
 
 If a template should use explicit yes/no values instead, opt into that style in `sprout.py`:
 
@@ -356,8 +366,9 @@ boundary. The `sprout` CLI translates these errors into concise process-exit mes
 
 ## Examples
 
-- [python-project-template](https://github.com/zigai/python-project-template).
+- [python-project-template](https://github.com/zigai/python-project-template)
+- [pi-extension-template](https://github.com/zigai/pi-extension-template)
 
 ## License
 
-[MIT License](https://github.com/zigai/sprout/blob/master/LICENSE)
+[MIT](LICENSE)
