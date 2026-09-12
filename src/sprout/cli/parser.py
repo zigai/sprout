@@ -301,8 +301,10 @@ class SproutHelpFormatter(InterfacyHelpFormatter):
         return super()._format_usage(usage, actions, groups, prefix)
 
 
-def _format_default_value(default: object) -> str | None:
+def _format_default_value(default: object, key: str | None = None) -> str | None:
     if default is None or default == "":
+        return None
+    if key in ("author_name", "author_email"):
         return None
     if isinstance(default, (list, tuple)):
         if not default:
@@ -574,7 +576,7 @@ def _add_question_flags_to_parser(
                     choices_summary = ", ".join(choice_values)
                 help_text = f"{help_text} (choices: {choices_summary})"
         if not _is_yes_no_question(question) and not callable(question.default):
-            default_summary = _format_default_value(question.default)
+            default_summary = _format_default_value(question.default, key=question.key)
             if default_summary is not None:
                 help_text = f"{help_text} [default: {default_summary}]"
 

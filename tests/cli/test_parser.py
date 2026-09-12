@@ -416,7 +416,7 @@ def test_build_cli_parser_formats_grouped_sections_and_synopsis(
     assert "--[no-]create-github-repo" in help_text
     assert "Create repo [default: no]" in help_text
     assert "[default: demo]" in help_text
-    assert "[default: author]" in help_text
+    assert "[default: author]" not in help_text
     assert "[default: no]" in help_text
     assert "[default: MIT]" in help_text
 
