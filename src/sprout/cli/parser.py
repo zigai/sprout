@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from interfacy.argparse_backend.argument_parser import ArgumentParser
+from interfacy.argparse_backend.argument_parser import ArgumentParser, InterfacyHelpFormatter
 
 from sprout.execution import resolve_template_directory
 from sprout.extensions.environment import build_environment
@@ -204,9 +204,12 @@ def _format_trusted_templates_help(templates: Sequence[TrustedTemplate]) -> str:
 
 
 def _format_question_help(question: Question) -> str:
-    description = question.prompt
+    description = question.prompt.strip()
+    if description.endswith("?"):
+        description = description[:-1].strip()
+
     if question.help:
-        description = f"{description} - {question.help}"
+        description = f"{description} - {question.help.strip()}"
 
     if question.multiselect:
         description = f"{description} (multiple values allowed)"
@@ -228,31 +231,213 @@ def _is_yes_no_question(question: Question) -> bool:
     return question.parser is parse_yes_no and list(choices or ()) == list(YES_NO_CHOICES)
 
 
+class BooleanPairAction(argparse.Action):
+    """Store mutually exclusive boolean flags on a single argument entry."""
+
+    def __init__(
+        self,
+        option_strings: Sequence[str],
+        dest: str,
+        default: object = argparse.SUPPRESS,
+        help: str | None = None,  # noqa: A002
+        **_kwargs: object,
+    ) -> None:
+        super().__init__(
+            option_strings=option_strings,
+            dest=dest,
+            nargs=0,
+            default=default,
+            help=help,
+        )
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        del values
+        current = "no" if option_string and option_string.startswith("--no-") else "yes"
+        prior = getattr(namespace, self.dest, None)
+        if prior is not None and prior != current:
+            parser.error(f"argument {option_string}: not allowed with conflicting boolean option")
+        setattr(namespace, self.dest, current)
+        if "__" in self.dest:
+            orig = self.dest.split("__")[-1]
+            setattr(namespace, orig, current)
+
+
+class SproutHelpFormatter(InterfacyHelpFormatter):
+    """Custom help formatter rendering boolean flag pairs as --[no-]flag and capitalized sections."""
+
+    def _format_action_invocation(self, action: argparse.Action) -> str:
+        if isinstance(action, BooleanPairAction):
+            positive = next((f for f in action.option_strings if not f.startswith("--no-")), None)
+            if positive:
+                return f"--[no-]{positive.removeprefix('--')}"
+
+        return super()._format_action_invocation(action)
+
+    def start_section(self, heading: str | None) -> None:
+        if heading not in (None, argparse.SUPPRESS):
+            text = heading.strip()
+            heading = text[:1].upper() + text[1:]
+
+        return super().start_section(heading)
+
+    def _format_usage(
+        self,
+        usage: str | None,
+        actions: Iterable[argparse.Action],
+        groups: Iterable[argparse._MutuallyExclusiveGroup],
+        prefix: str | None,
+    ) -> str:
+        if prefix is None or prefix.lower().startswith("usage:"):
+            prefix = "Usage: "
+        if isinstance(usage, str) and usage.lower().startswith("usage:"):
+            usage = re.sub(r"^usage:\s*", "", usage, flags=re.IGNORECASE)
+
+        return super()._format_usage(usage, actions, groups, prefix)
+
+
+def _format_default_value(default: object) -> str | None:
+    if default is None or default == "":
+        return None
+    if isinstance(default, (list, tuple)):
+        if not default:
+            return None
+        return ", ".join(str(item) for item in default)
+    text = str(default)
+    if _HELP_PROBE_DESTINATION in text or "sprout-help-destination" in text:
+        return None
+    return text
+
+
+def _boolean_default_text(default: object) -> str | None:
+    if default in ("yes", True):
+        return "yes"
+    if default in ("no", False):
+        return "no"
+
+    return None
+
+
 def _add_boolean_question_flags(
-    parser: ArgumentParser,
+    container: argparse._ActionsContainer,
     *,
     flag: str,
     dest: str,
     help_text: str,
+    question: Question,
 ) -> None:
     negative_flag = f"--no-{flag.removeprefix('--')}"
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
+    default_text = _boolean_default_text(question.default)
+    if default_text is not None:
+        help_text = f"{help_text} [default: {default_text}]"
+
+    container.add_argument(
         flag,
-        dest=dest,
-        help=f"{help_text} (yes)",
-        default=argparse.SUPPRESS,
-        action="store_const",
-        const="yes",
-    )
-    group.add_argument(
         negative_flag,
         dest=dest,
-        help=f"{help_text} (no)",
+        action=BooleanPairAction,
+        help=help_text,
         default=argparse.SUPPRESS,
-        action="store_const",
-        const="no",
     )
+
+
+def _categorize_question(key: str) -> str:
+    cleaned = key.lower()
+    if any(k in cleaned for k in ("git_", "github_repo", "create_github", "create_git")):
+        return "git"
+    if any(
+        k in cleaned
+        for k in (
+            "license",
+            "actions",
+            "workflows",
+            "badges",
+            "setup_",
+            "include_",
+            "publish_to",
+        )
+    ):
+        return "features"
+    if cleaned in ("author_name", "author_email", "description", "repository_url", "homepage"):
+        return "metadata"
+
+    return "project"
+
+
+_METAVAR_EXACT_MAP: dict[str, str] = {
+    "description": "<text>",
+    "desc": "<text>",
+    "summary": "<text>",
+    "prompt": "<text>",
+    "name": "<name>",
+    "pkg": "<name>",
+    "crate": "<name>",
+    "package": "<name>",
+    "email": "<email>",
+    "mail": "<email>",
+    "url": "<url>",
+    "homepage": "<url>",
+    "website": "<url>",
+    "repo_url": "<url>",
+    "version": "<version>",
+    "msrv": "<version>",
+    "type": "<type>",
+    "kind": "<kind>",
+    "path": "<path>",
+    "dir": "<path>",
+    "directory": "<path>",
+    "edition": "<edition>",
+    "policy": "<policy>",
+    "license": "<license>",
+    "visibility": "<visibility>",
+}
+
+_METAVAR_SUFFIX_MAP: tuple[tuple[str, str], ...] = (
+    ("_name", "<name>"),
+    ("_email", "<email>"),
+    ("_url", "<url>"),
+    ("_version", "<version>"),
+    ("_type", "<type>"),
+    ("_kind", "<kind>"),
+    ("_path", "<path>"),
+    ("_edition", "<edition>"),
+    ("_policy", "<policy>"),
+    ("_license", "<license>"),
+    ("_visibility", "<visibility>"),
+)
+
+
+def _derive_metavar(key: str) -> str:
+    cleaned = key.lower()
+    if cleaned in _METAVAR_EXACT_MAP:
+        return _METAVAR_EXACT_MAP[cleaned]
+
+    if "workflow" in cleaned or "action" in cleaned:
+        return "<workflow>"
+
+    for suffix, metavar in _METAVAR_SUFFIX_MAP:
+        if cleaned.endswith(suffix):
+            return metavar
+
+    last = key.rsplit("_", maxsplit=1)[-1].strip().lower()
+
+    return f"<{last}>" if last else "<value>"
+
+
+def _metavar_for_question(question: Question) -> str:
+    explicit = getattr(question, "metavar", None)
+    if isinstance(explicit, str) and explicit.strip():
+        val = explicit.strip()
+        if not val.startswith("<") and not val.endswith(">"):
+            return f"<{val.lower()}>"
+        return val
+
+    return _derive_metavar(question.key)
 
 
 def build_cli_parser(
@@ -264,6 +449,7 @@ def build_cli_parser(
     parser = ArgumentParser(
         prog="sprout",
         description="Create projects from Sprout templates.",
+        formatter_class=SproutHelpFormatter,
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -305,6 +491,8 @@ def build_cli_parser(
         "new",
         help="Generate a project from a template.",
         description=new_description,
+        usage="sprout new [options] TEMPLATE DESTINATION" if prepared is not None else None,
+        formatter_class=SproutHelpFormatter,
     )
     new_parser.add_argument(
         "template",
@@ -326,16 +514,36 @@ def build_cli_parser(
         description="List trusted template names and their sources.",
     )
 
-    if prepared is None:
-        return parser
+    if prepared is not None:
+        _add_question_flags_to_parser(new_parser, prepared)
 
+    return parser
+
+
+def _add_question_flags_to_parser(
+    new_parser: ArgumentParser,
+    prepared: PreparedTemplate,
+) -> None:
     used_dests = {"template", "destination", "force", "help"}
+    groups: dict[str, argparse._ArgumentGroup] = {
+        "project": new_parser.add_argument_group("project"),
+        "metadata": new_parser.add_argument_group("metadata"),
+        "git": new_parser.add_argument_group("git"),
+        "features": new_parser.add_argument_group("features"),
+    }
+
     for question in prepared.questions:
         dest = sanitize_question_key(question.key)
         if dest in used_dests:
             continue
 
         used_dests.add(dest)
+
+        category = _categorize_question(question.key)
+        target_container: argparse._ActionsContainer = groups.get(category, new_parser)
+
+        get_nested = getattr(new_parser, "_get_nested_destination", None)
+        nested_dest = str(get_nested(dest, store=True)) if callable(get_nested) else dest
 
         flag = f"--{_flag_from_question_key(question.key)}"
         help_text = _format_question_help(question)
@@ -345,10 +553,11 @@ def build_cli_parser(
             and _is_yes_no_question(question)
         ):
             _add_boolean_question_flags(
-                new_parser,
+                target_container,
                 flag=flag,
-                dest=dest,
+                dest=nested_dest,
                 help_text=help_text,
+                question=question,
             )
             continue
 
@@ -357,30 +566,41 @@ def build_cli_parser(
             choices = question.resolve_choices({})
             if choices:
                 choice_values = [value for value, _label in choices]
-                help_text = f"{help_text} (choices: {', '.join(choice_values)})"
+                if len(choice_values) > 8:
+                    choices_summary = (
+                        f"{', '.join(choice_values[:5])}, ...; {len(choice_values)} available"
+                    )
+                else:
+                    choices_summary = ", ".join(choice_values)
+                help_text = f"{help_text} (choices: {choices_summary})"
+        if not _is_yes_no_question(question) and not callable(question.default):
+            default_summary = _format_default_value(question.default)
+            if default_summary is not None:
+                help_text = f"{help_text} [default: {default_summary}]"
 
+        metavar = _metavar_for_question(question)
         if question.multiselect:
-            new_parser.add_argument(
+            target_container.add_argument(
                 flag,
-                dest=dest,
+                dest=nested_dest,
                 help=help_text,
                 default=argparse.SUPPRESS,
                 type=str,
                 choices=choice_values,
                 action="append",
+                metavar=metavar,
             )
             continue
 
-        new_parser.add_argument(
+        target_container.add_argument(
             flag,
-            dest=dest,
+            dest=nested_dest,
             help=help_text,
             default=argparse.SUPPRESS,
             type=str,
             choices=choice_values,
+            metavar=metavar,
         )
-
-    return parser
 
 
 __all__ = [

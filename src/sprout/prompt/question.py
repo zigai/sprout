@@ -65,6 +65,7 @@ class Question:
             Defaults to None.
         validators (Sequence[ValidatorType]): Validators that run after parsing. Defaults to an
             empty list.
+        metavar (str | None): Optional CLI placeholder name shown in help output. Defaults to None.
     """
 
     key: str
@@ -76,6 +77,7 @@ class Question:
     multiselect: bool = False
     parser: ParserType | None = None
     validators: Sequence[ValidatorType] = field(default_factory=list)
+    metavar: str | None = None
 
     def resolve_default(self, answers: AnswerMap) -> DefaultValue:
         """
