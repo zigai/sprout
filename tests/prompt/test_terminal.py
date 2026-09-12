@@ -364,6 +364,49 @@ def test_question_prompt_shows_header_for_live_inline_choice(
     assert summaries == [("no", "No")]
 
 
+@pytest.mark.parametrize("inline", [True, False])
+def test_choice_validation_retries_without_committing_rejected_answer(
+    monkeypatch: pytest.MonkeyPatch,
+    inline: bool,
+) -> None:
+    selections = iter(["yes", "no"])
+    errors: list[str] = []
+    summaries: list[object] = []
+    answers = {"description": ""}
+    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
+    monkeypatch.setattr(TerminalQuestion, "should_use_inline", lambda _terminal: inline)
+    monkeypatch.setattr(
+        TerminalQuestion, "run_inline_application", lambda _terminal: next(selections)
+    )
+    monkeypatch.setattr(
+        TerminalQuestion,
+        "run_choice_application",
+        lambda _terminal, _choices, _default: next(selections),
+    )
+    monkeypatch.setattr(
+        "sprout.prompt.session.print_error", lambda error, _style: errors.append(str(error))
+    )
+    monkeypatch.setattr(
+        "sprout.prompt.session.print_choice_summary",
+        lambda _question, value, _labels, _style: summaries.append(value),
+    )
+    question = Question.yes_no(
+        key="publish",
+        prompt="Publish?",
+        validators=[
+            lambda _raw, candidate: (
+                not candidate["publish"] or bool(candidate["description"]),
+                "A description is required.",
+            )
+        ],
+    )
+
+    assert QuestionPrompt(question, answers, Style()).ask() is False
+    assert errors == ["A description is required."]
+    assert summaries == ["no"]
+    assert answers == {"description": ""}
+
+
 @pytest.mark.parametrize(
     ("width", "expected_branch"),
     [(20, "inline"), (19, "menu")],

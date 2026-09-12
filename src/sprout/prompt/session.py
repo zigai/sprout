@@ -67,19 +67,6 @@ class QuestionPrompt:
 
     def ask(self) -> DefaultValue:
         self.terminal.print_header()
-        if self.terminal.should_use_inline() and supports_live_interaction():
-            selection = self.terminal.run_inline_application()
-            raw_selection = selection if isinstance(selection, str) else str(selection)
-            processed = self.processor.process(selection, raw=raw_selection)
-            print_choice_summary(
-                self.question,
-                selection,
-                dict(self.resolved.choices),
-                self.style,
-            )
-
-            return processed
-
         if self.resolved.has_choices:
             return self._ask_choice()
 
@@ -104,7 +91,10 @@ class QuestionPrompt:
                     style=self.style,
                 ).ask()
 
-            selection = self.terminal.run_choice_application(choices, current_default)
+            if self.terminal.should_use_inline():
+                selection = self.terminal.run_inline_application()
+            else:
+                selection = self.terminal.run_choice_application(choices, current_default)
             raw_selection = selection if isinstance(selection, str) else str(selection)
             try:
                 processed = self.processor.process(selection, raw=raw_selection)
