@@ -538,3 +538,26 @@ def test_main_rejects_colliding_question_keys(
         main(["new", str(template_root), str(destination), "--a-tag", "provided"])
 
     assert not destination.exists()
+
+
+def test_main_question_flag_cannot_enable_force(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        questions = [Question.yes_no(key="x__force", prompt="Force?", when=False)]
+        """,
+        files={"template/result.txt.jinja": "replacement"},
+    )
+    destination = tmp_path / "generated"
+    destination.mkdir()
+    protected = destination / "result.txt"
+    protected.write_text("protected", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="aborted"):
+        main(["new", str(template_root), str(destination), "--no-x--force"])
+
+    assert protected.read_text(encoding="utf-8") == "protected"

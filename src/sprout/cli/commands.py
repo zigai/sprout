@@ -9,8 +9,8 @@ from rich.text import Text
 
 from sprout.cli.parser import (
     PreparedTemplate,
+    question_cli_destinations,
     resolve_registered_template,
-    sanitize_question_key,
 )
 from sprout.execution import execute_manifest, normalize_created_paths, summarize
 from sprout.manifest_loader import load_manifest
@@ -225,10 +225,9 @@ def _run_new_command(
 
     cli_answers: dict[str, DefaultValue] = {}
     if prepared is not None:
-        for question in prepared.questions:
-            dest = sanitize_question_key(question.key)
+        for key, dest in question_cli_destinations(prepared.questions).items():
             if dest in values:
-                cli_answers[question.key] = values[dest]
+                cli_answers[key] = values[dest]
 
     return _run_generate(
         resolve_registered_template(template),

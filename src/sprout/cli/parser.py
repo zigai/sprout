@@ -549,10 +549,13 @@ def build_cli_parser(
 
 
 def question_cli_destinations(questions: Sequence[Question]) -> dict[str, str]:
+    reserved = {"template", "destination", "force", "help"}
     used_dests: set[str] = set()
     destinations: dict[str, str] = {}
     for question in questions:
         dest = sanitize_question_key(question.key)
+        if dest in reserved:
+            continue
         if dest in used_dests:
             raise SproutManifestError(
                 f"question key {question.key!r} collides with another CLI key."
@@ -568,7 +571,6 @@ def _add_question_flags_to_parser(
     new_parser: ArgumentParser,
     prepared: PreparedTemplate,
 ) -> None:
-    reserved = {"template", "destination", "force", "help"}
     destinations = question_cli_destinations(prepared.questions)
     groups: dict[str, argparse._ArgumentGroup] = {
         "project": new_parser.add_argument_group("project"),
@@ -579,7 +581,7 @@ def _add_question_flags_to_parser(
 
     for question in prepared.questions:
         dest = destinations.get(question.key)
-        if dest is None or dest in reserved:
+        if dest is None:
             continue
 
         category = _categorize_question(question.key)
