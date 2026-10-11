@@ -631,3 +631,28 @@ def test_fallback_single_choice_preserves_values_and_rejects_unknown(
     )
 
     assert QuestionPrompt(question, {}, Style()).ask() == expected
+
+
+@pytest.mark.parametrize(
+    ("multiselect", "default", "expected"),
+    [(False, "public", "private"), (True, ["public"], ["private"])],
+    ids=["single", "multiple"],
+)
+def test_fallback_choice_rejects_default_outside_choices(
+    monkeypatch: pytest.MonkeyPatch,
+    multiselect: bool,
+    default: str | list[str],
+    expected: str | list[str],
+) -> None:
+    inputs = iter(["", "1"])
+    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: False)
+    monkeypatch.setattr("sprout.prompt.terminal.console.input", lambda _prompt: next(inputs))
+    question = Question(
+        key="visibility",
+        prompt="Visibility",
+        default=default,
+        choices=[("private", "Private")],
+        multiselect=multiselect,
+    )
+
+    assert QuestionPrompt(question, {}, Style()).ask() == expected

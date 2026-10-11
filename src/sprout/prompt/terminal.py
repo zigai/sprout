@@ -459,6 +459,11 @@ class FallbackChoicePrompt:
 
     def resolve_choice(self, response: str) -> str | list[str] | None:
         if not response:
+            allowed = {value for value, _label in self.choices}
+            if any(value not in allowed for value in self.default_list):
+                print_error("Default is not an available choice.", self.style)
+                return None
+
             if self.question.multiselect:
                 return list(self.default_list)
 
