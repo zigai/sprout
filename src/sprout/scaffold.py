@@ -42,7 +42,8 @@ def create_template_scaffold(directory: str | Path = ".") -> tuple[Path, ...]:
 
         for path, content in files:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            with path.open("x", encoding="utf-8") as file:
+                file.write(content)
     except OSError as e:
         raise SproutScaffoldError(f"failed to create template scaffold at {root}.") from e
 

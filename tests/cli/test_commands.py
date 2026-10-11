@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import StringIO
 from pathlib import Path
+from typing import IO
 
 import pytest
 from rich.console import Console
@@ -252,3 +253,35 @@ def test_add_does_not_replace_alias_added_after_lookup(
         main(["add", "owner/second", "--name", "demo"])
 
     assert TemplateRegistry().entries() == (TrustedTemplate(name="demo", source="owner/first"),)
+
+
+def test_init_preserves_manifest_created_during_write(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "template-source"
+    root.mkdir()
+    manifest = root / "sprout.py"
+    original_open = Path.open
+
+    def open_with_competing_file(
+        self: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> IO[str] | IO[bytes]:
+        if self == manifest and not manifest.exists():
+            with original_open(manifest, "x", encoding="utf-8") as file:
+                file.write("concurrent content\n")
+
+        return original_open(self, mode, buffering, encoding, errors, newline)
+
+    monkeypatch.setattr(Path, "open", open_with_competing_file)
+
+    with pytest.raises(SystemExit):
+        main(["init", str(root)])
+
+    assert manifest.read_text(encoding="utf-8") == "concurrent content\n"
+    assert not (root / "template" / "README.md.jinja").exists()

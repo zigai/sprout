@@ -384,17 +384,18 @@ def test_create_template_scaffold_translates_filesystem_failure(
     root = tmp_path / "template"
     cause = OSError("platform-specific detail")
 
-    def fail_write_text(
+    def fail_open(
         self: Path,
-        data: str,
+        mode: str = "r",
+        buffering: int = -1,
         encoding: str | None = None,
         errors: str | None = None,
         newline: str | None = None,
-    ) -> int:
-        del self, data, encoding, errors, newline
+    ) -> None:
+        del self, mode, buffering, encoding, errors, newline
         raise cause
 
-    monkeypatch.setattr(Path, "write_text", fail_write_text)
+    monkeypatch.setattr(Path, "open", fail_open)
 
     with pytest.raises(SproutScaffoldError) as raised:
         create_template_scaffold(root)
