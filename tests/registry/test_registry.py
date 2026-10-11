@@ -122,6 +122,16 @@ def test_registry_rejects_invalid_persisted_config(tmp_path: Path, config: objec
         TemplateRegistry(path).entries()
 
 
+@pytest.mark.parametrize("version", [True, 1.0], ids=["boolean", "float"])
+def test_list_rejects_non_integer_registry_version(version: object) -> None:
+    path = default_registry_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": version, "templates": []}), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="unsupported version"):
+        main(["list"])
+
+
 def test_registry_rejects_malformed_json(tmp_path: Path) -> None:
     path = tmp_path / "templates.json"
     path.write_text("{invalid", encoding="utf-8")
@@ -144,13 +154,3 @@ def test_template_source_normalization_and_name_derivation(tmp_path: Path) -> No
 
 def test_template_name_derivation_supports_windows_paths() -> None:
     assert derive_template_name(r"C:\templates\local-template") == "local-template"
-
-
-@pytest.mark.parametrize("version", [True, 1.0], ids=["boolean", "float"])
-def test_list_rejects_non_integer_registry_version(version: object) -> None:
-    path = default_registry_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"version": version, "templates": []}), encoding="utf-8")
-
-    with pytest.raises(SystemExit, match="unsupported version"):
-        main(["list"])
