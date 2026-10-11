@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
 from platformdirs import user_config_path
 
 from sprout.errors import SproutRegistryError
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 CONFIG_VERSION = 1
 type JsonScalar = bool | int | float | str | None
@@ -39,10 +47,14 @@ class TemplateRegistry:
         return next((entry for entry in self._load() if entry.name == name), None)
 
     def save(self, entry: TrustedTemplate) -> None:
-        entries_by_name = {item.name: item for item in self._load()}
-        entries_by_name[entry.name] = entry
-        entries = sorted(entries_by_name.values(), key=lambda item: item.name.casefold())
-        self._write(entries)
+        try:
+            with _lock_registry(self.path):
+                entries_by_name = {item.name: item for item in self._load()}
+                entries_by_name[entry.name] = entry
+                entries = sorted(entries_by_name.values(), key=lambda item: item.name.casefold())
+                self._write(entries)
+        except OSError as e:
+            raise SproutRegistryError(f"failed to write template registry {self.path}.") from e
 
     def _load(self) -> list[TrustedTemplate]:
         if not self.path.exists():
@@ -63,7 +75,6 @@ class TemplateRegistry:
         temp_path: Path | None = None
         write_error: OSError | None = None
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
@@ -92,6 +103,27 @@ class TemplateRegistry:
             raise SproutRegistryError(
                 f"failed to write template registry {self.path}."
             ) from write_error
+
+
+@contextmanager
+def _lock_registry(path: Path) -> Generator[None, None, None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f"{path.name}.lock")
+    with lock_path.open("a+b") as file:
+        if sys.platform == "win32":
+            file.seek(0)
+            msvcrt.locking(file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+
+        try:
+            yield
+        finally:
+            if sys.platform == "win32":
+                file.seek(0)
+                msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(file.fileno(), fcntl.LOCK_UN)
 
 
 def default_registry_path() -> Path:
