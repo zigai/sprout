@@ -473,8 +473,10 @@ class FallbackChoicePrompt:
             return self._resolve_multiselect(response)
 
         resolved = self._resolve_token(response)
+        if resolved is None:
+            print_error(f"Unknown choice '{response}'.", self.style)
 
-        return resolved or response
+        return resolved
 
     def _raw_value(self, response: str, candidate: str | list[str]) -> str:
         if response:
@@ -510,9 +512,12 @@ class FallbackChoicePrompt:
         return resolved
 
     def _resolve_token(self, token: str) -> str | None:
-        lower = token.lower()
         if token in self.index_map:
             return self.index_map[token]
+        if any(token == value for value, _label in self.choices):
+            return token
+
+        lower = token.lower()
         if lower in self.value_map:
             return self.value_map[lower]
 

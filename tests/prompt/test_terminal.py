@@ -604,3 +604,30 @@ def test_default_theme_configures_blue_link_and_path_styles() -> None:
     assert DEFAULT_THEME.styles["repr.path"].color.name == "bright_blue"
     assert DEFAULT_THEME.styles["repr.filename"].color.name == "bright_blue"
     assert DEFAULT_THEME.styles["markdown.link"].color.name == "bright_blue"
+
+
+@pytest.mark.parametrize(
+    ("responses", "expected"),
+    [
+        (["MIT"], "MIT"),
+        (["mit"], "mit"),
+        (["unknown", "1"], "MIT"),
+    ],
+    ids=["uppercase-value", "lowercase-value", "unknown-then-index"],
+)
+def test_fallback_single_choice_preserves_values_and_rejects_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+    responses: list[str],
+    expected: str,
+) -> None:
+    inputs = iter(responses)
+    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: False)
+    monkeypatch.setattr("sprout.prompt.terminal.supports_live_interaction", lambda: False)
+    monkeypatch.setattr("sprout.prompt.terminal.console.input", lambda _prompt: next(inputs))
+    question = Question(
+        key="license",
+        prompt="License",
+        choices=[("MIT", "Uppercase license"), ("mit", "Lowercase license")],
+    )
+
+    assert QuestionPrompt(question, {}, Style()).ask() == expected
