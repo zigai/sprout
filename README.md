@@ -184,7 +184,7 @@ sprout new <template-path> <project-path> --git-init
 sprout new <template-path> <project-path> --no-git-init
 ```
 
-In `--help`, paired boolean flags are documented using bracket negation: `--[no-]git-init`.
+In `--help`, paired boolean flags are listed together: `--git-init, --no-git-init`.
 
 If a template should use explicit yes/no values instead, opt into that style in `sprout.py`:
 

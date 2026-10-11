@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -177,18 +177,20 @@ wheels = [
 
 [[package]]
 name = "interfacy"
-version = "0.7.0"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "objinspect" },
+    { name = "platformdirs" },
     { name = "setproctitle" },
     { name = "stdl" },
     { name = "strto" },
     { name = "tomlkit" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5c/48/f88185dbaeca8a5c5c0603d8045bb171d240fb896da0535b38c824328b1f/interfacy-0.7.0.tar.gz", hash = "sha256:47c6e12187f81761cfcdf43f72859c448d6b06d940cdcf91789209220e15850c", size = 148080, upload-time = "2026-08-05T10:44:54.01Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/42/6a9d26c67e0657e354ccd85e9242d1a5d2b316a3814b291f27442edb8122/interfacy-0.9.0.tar.gz", hash = "sha256:302e4e16c83d639d5167e51f32cbcf2ac247baa8212e60c83aedfd0e5f5b51e7", size = 164233, upload-time = "2026-10-11T21:04:30.843Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/9a/68bd1284e81a78fd88fc6a59d3de183cb858108c1fdc65be606ffe38b546/interfacy-0.7.0-py3-none-any.whl", hash = "sha256:a3b8f4d37159432a9bcb595db7fb1a0b89d9dbf3689683eb6ca064b085f9b841", size = 171369, upload-time = "2026-08-05T10:44:52.746Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/45/5a3f13feeee5bfcdfb81ee73edf4bb5ac38b6f904f0bda7898b2657437c3/interfacy-0.9.0-py3-none-any.whl", hash = "sha256:94a2e9ac07418be106000abc1f007d4a480c87a9eae13b52ae23a27d9feeef84", size = 216203, upload-time = "2026-10-11T21:04:29.349Z" },
 ]
 
 [[package]]
@@ -704,6 +706,7 @@ wheels = [
 name = "sprout-template"
 version = "1.5.0"
 source = { editable = "." }
+default-groups = ["test"]
 dependencies = [
     { name = "interfacy" },
     { name = "jinja2" },
@@ -747,7 +750,7 @@ requires-dist = [
     { name = "codespell", marker = "extra == 'dev'", specifier = ">=2.4.2" },
     { name = "coverage", marker = "extra == 'dev'", specifier = ">=7.14.1" },
     { name = "coverage", marker = "extra == 'test'", specifier = ">=7.14.1" },
-    { name = "interfacy", specifier = ">=0.7.0" },
+    { name = "interfacy", specifier = ">=0.9.0" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "platformdirs", specifier = ">=4.5.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.0" },

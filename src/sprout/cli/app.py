@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 
-from interfacy.argparse_backend.argument_parser import namespace_to_dict
+from interfacy.backends.argparse.namespaces import namespace_to_dict
 
 from sprout.cli.commands import dispatch_command, list_templates
 from sprout.cli.parser import (
