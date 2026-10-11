@@ -55,6 +55,7 @@ class TemplateRenderer:
 
     def render(self) -> list[Path]:
         planned: list[tuple[Path, Path, str]] = []
+        targets: dict[Path, str] = {}
 
         for source in sorted(self.template_dir.rglob("*")):
             if source.is_dir() or _should_ignore_path(source, self.ignore_patterns):
@@ -66,6 +67,13 @@ class TemplateRenderer:
                 continue
 
             target_relative = self._resolve_target_relative(source, relative)
+            target_path = (self.destination / target_relative).resolve()
+            if target_path in targets:
+                raise SproutGenerationError(
+                    f"'{targets[target_path]}' and '{relative_str}' map to the same destination file."
+                )
+
+            targets[target_path] = relative_str
             planned.append((source, target_relative, relative_str))
 
         if not planned:
@@ -102,6 +110,7 @@ class TemplateRenderer:
             target = staging / target_relative
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch(exist_ok=False)
             except FileExistsError as e:
                 raise SproutGenerationError(
                     f"'{relative_str}' conflicts with another destination path."

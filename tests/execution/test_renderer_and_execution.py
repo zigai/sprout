@@ -645,3 +645,113 @@ def test_main_does_not_overwrite_outside_hard_link(
     assert (destination / "a.txt").read_text(encoding="utf-8") == "replacement"
     if suffix == ".txt.jinja":
         assert (destination / "a.txt").stat().st_mode == mode
+
+
+@pytest.mark.parametrize("existing", [False, True], ids=["new-destination", "existing-child"])
+def test_main_rejects_file_directory_collision_before_overwriting(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    existing: bool,
+) -> None:
+    template_root = make_template(
+        "questions = []",
+        files={"template/a.jinja": "file", "template/a/b.jinja": "replacement"},
+    )
+    destination = tmp_path / "generated"
+    protected = destination / "a" / "b"
+    if existing:
+        protected.parent.mkdir(parents=True)
+        protected.write_text("protected", encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        main(["new", str(template_root), str(destination), "--force"])
+
+    files = {
+        path.relative_to(destination).as_posix(): path.read_text(encoding="utf-8")
+        for path in destination.rglob("*")
+        if path.is_file()
+    }
+    assert files == ({"a/b": "protected"} if existing else {})
+
+
+def test_main_respects_filesystem_case_identity(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        questions = [Question(key="first", prompt="First"), Question(key="second", prompt="Second")]
+        """,
+        files={
+            "template/{{ first }}.json.jinja": "first",
+            "template/{{ second }}.json.jinja": "second",
+        },
+    )
+    destination = tmp_path / "generated"
+    destination.mkdir()
+    protected = destination / "settings.json"
+    protected.write_text("protected", encoding="utf-8")
+    aliases = (destination / "SETTINGS.json").exists()
+    args = [
+        "new",
+        str(template_root),
+        str(destination),
+        "--force",
+        "--first",
+        "settings",
+        "--second",
+        "SETTINGS",
+    ]
+
+    if aliases:
+        with pytest.raises(SystemExit):
+            main(args)
+
+        assert protected.read_text(encoding="utf-8") == "protected"
+    else:
+        assert main(args) == 0
+        assert protected.read_text(encoding="utf-8") == "first"
+        assert (destination / "SETTINGS.json").read_text(encoding="utf-8") == "second"
+
+
+@pytest.mark.parametrize(
+    "sources",
+    [("a.txt", "a.txt.jinja"), ("{{ first }}.txt.jinja", "{{ second }}.txt.jinja")],
+    ids=["suffix-collision", "rendered-path-collision"],
+)
+def test_main_rejects_output_collisions_before_overwriting(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    sources: tuple[str, str],
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        questions = [Question(key="first", prompt="First"), Question(key="second", prompt="Second")]
+        """,
+        files={f"template/{sources[0]}": "first", f"template/{sources[1]}": "second"},
+    )
+    destination = tmp_path / "generated"
+    destination.mkdir()
+    protected = destination / "a.txt"
+    protected.write_text("protected", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="same destination"):
+        main(
+            [
+                "new",
+                str(template_root),
+                str(destination),
+                "--force",
+                "--first",
+                "a",
+                "--second",
+                "a",
+            ]
+        )
+
+    assert protected.read_text(encoding="utf-8") == "protected"
+    assert list(destination.iterdir()) == [protected]
