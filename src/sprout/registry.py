@@ -46,10 +46,15 @@ class TemplateRegistry:
     def find(self, name: str) -> TrustedTemplate | None:
         return next((entry for entry in self._load() if entry.name == name), None)
 
-    def save(self, entry: TrustedTemplate) -> None:
+    def save(self, entry: TrustedTemplate, *, replacing: TrustedTemplate | None = None) -> None:
         try:
             with _lock_registry(self.path):
                 entries_by_name = {item.name: item for item in self._load()}
+                if entries_by_name.get(entry.name) != replacing:
+                    raise SproutRegistryError(
+                        f"trusted template '{entry.name}' changed before saving; retry the add command."
+                    )
+
                 entries_by_name[entry.name] = entry
                 entries = sorted(entries_by_name.values(), key=lambda item: item.name.casefold())
                 self._write(entries)

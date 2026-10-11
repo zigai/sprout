@@ -85,7 +85,7 @@ def add_template(source: str, *, name: str | None = None) -> int:
     if existing is not None and not _confirm_template_replace(existing, normalized_source):
         raise SystemExit("template registry was not changed.")
 
-    registry.save(TrustedTemplate(name=template_name, source=normalized_source))
+    registry.save(TrustedTemplate(name=template_name, source=normalized_source), replacing=existing)
     console.print(
         Text(
             f"Trusted template '{template_name}' now points to {normalized_source}.", style="green"

@@ -234,3 +234,21 @@ def test_registered_remote_alias_is_prepared_fresh_for_each_run(
     assert main(["new", "demo", str(tmp_path / "two")]) == 0
     assert prepared_sources == ["owner/repo", "owner/repo"]
     assert cleanup_calls == ["owner/repo", "owner/repo"]
+
+
+def test_add_does_not_replace_alias_added_after_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_find = TemplateRegistry.find
+
+    def find_and_add(self: TemplateRegistry, name: str) -> TrustedTemplate | None:
+        existing = original_find(self, name)
+        self.save(TrustedTemplate(name="demo", source="owner/first"))
+        return existing
+
+    monkeypatch.setattr(TemplateRegistry, "find", find_and_add)
+
+    with pytest.raises(SystemExit):
+        main(["add", "owner/second", "--name", "demo"])
+
+    assert TemplateRegistry().entries() == (TrustedTemplate(name="demo", source="owner/first"),)
