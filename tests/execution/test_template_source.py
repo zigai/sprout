@@ -9,6 +9,23 @@ from sprout.errors import SproutTemplateSourceError
 from sprout.template_source import TemplateSource, _normalise_git_url, _resolve_git_executable
 
 
+@pytest.fixture
+def cleanup_calls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
+    calls: list[str] = []
+
+    class FakeTemporaryDirectory:
+        def __init__(self, prefix: str) -> None:
+            self.name = str(tmp_path / prefix)
+
+        def cleanup(self) -> None:
+            calls.append(self.name)
+
+    monkeypatch.setattr(
+        "sprout.template_source.tempfile.TemporaryDirectory", FakeTemporaryDirectory
+    )
+    return calls
+
+
 def test_template_source_owns_local_directory(tmp_path: Path) -> None:
     template = tmp_path / "template"
     template.mkdir()
@@ -51,25 +68,15 @@ def test_template_source_translates_temporary_directory_failure(
 def test_template_source_translates_clone_launch_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    cleanup_calls: list[str],
 ) -> None:
-    cleanup_calls: list[str] = []
     cause = OSError("platform-specific detail")
-
-    class FakeTemporaryDirectory:
-        def __init__(self, prefix: str) -> None:
-            self.name = str(tmp_path / prefix)
-
-        def cleanup(self) -> None:
-            cleanup_calls.append(self.name)
 
     def fail_run(args: list[str], **kwargs: object) -> object:
         del args, kwargs
         raise cause
 
     monkeypatch.setattr("sprout.template_source._resolve_git_executable", lambda: "git")
-    monkeypatch.setattr(
-        "sprout.template_source.tempfile.TemporaryDirectory", FakeTemporaryDirectory
-    )
     monkeypatch.setattr("sprout.template_source.subprocess.run", fail_run)
 
     with pytest.raises(SproutTemplateSourceError) as raised:
@@ -83,25 +90,15 @@ def test_template_source_translates_clone_launch_failure(
 def test_template_source_cleans_up_and_propagates_keyboard_interrupt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    cleanup_calls: list[str],
 ) -> None:
-    cleanup_calls: list[str] = []
     interrupt = KeyboardInterrupt()
-
-    class FakeTemporaryDirectory:
-        def __init__(self, prefix: str) -> None:
-            self.name = str(tmp_path / prefix)
-
-        def cleanup(self) -> None:
-            cleanup_calls.append(self.name)
 
     def interrupt_clone(args: list[str], **kwargs: object) -> object:
         del args, kwargs
         raise interrupt
 
     monkeypatch.setattr("sprout.template_source._resolve_git_executable", lambda: "git")
-    monkeypatch.setattr(
-        "sprout.template_source.tempfile.TemporaryDirectory", FakeTemporaryDirectory
-    )
     monkeypatch.setattr("sprout.template_source.subprocess.run", interrupt_clone)
 
     with pytest.raises(KeyboardInterrupt) as raised:
@@ -114,24 +111,13 @@ def test_template_source_cleans_up_and_propagates_keyboard_interrupt(
 def test_template_source_remote_clone_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    cleanup_calls: list[str],
 ) -> None:
     monkeypatch.setattr("sprout.template_source._resolve_git_executable", lambda: "git")
-    cleanup_calls: list[str] = []
     cause = subprocess.CalledProcessError(
         1,
         ["git", "clone"],
         stderr="fatal: not found",
-    )
-
-    class FakeTemporaryDirectory:
-        def __init__(self, prefix: str) -> None:
-            self.name = str(tmp_path / prefix)
-
-        def cleanup(self) -> None:
-            cleanup_calls.append(self.name)
-
-    monkeypatch.setattr(
-        "sprout.template_source.tempfile.TemporaryDirectory", FakeTemporaryDirectory
     )
 
     def fake_run(*args: object, **kwargs: object) -> object:
