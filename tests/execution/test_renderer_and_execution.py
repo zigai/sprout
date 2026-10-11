@@ -87,7 +87,6 @@ def test_render_templates_renders_and_copies(tmp_path: Path) -> None:
     template_dir = tmp_path / "template"
     destination = tmp_path / "out"
     template_dir.mkdir()
-    destination.mkdir()
     (template_dir / "README.md.jinja").write_text("Hello {{ name }}\n", encoding="utf-8")
     (template_dir / "plain.txt").write_text("static\n", encoding="utf-8")
 
