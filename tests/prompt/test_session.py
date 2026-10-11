@@ -14,14 +14,31 @@ from sprout.prompt.style import InlineStyle, Style
 from sprout.prompt.terminal import TerminalQuestion
 
 
-def test_collect_answers_skips_question_when_condition_false(
+@pytest.mark.parametrize(
+    ("use_license", "response", "expected_calls", "expected_answers"),
+    [
+        pytest.param(True, "asked", [], {"use_license": True}, id="condition-false"),
+        pytest.param(
+            False,
+            "not needed",
+            ["license_reason"],
+            {"use_license": False, "license_reason": "not needed"},
+            id="condition-true",
+        ),
+    ],
+)
+def test_collect_answers_respects_question_condition(
     monkeypatch: pytest.MonkeyPatch,
+    use_license: bool,
+    response: str,
+    expected_calls: list[str],
+    expected_answers: dict[str, object],
 ) -> None:
     calls: list[str] = []
 
     def fake_ask_question(question: Question, answers: dict[str, object], style: object) -> object:
         calls.append(question.key)
-        return "asked"
+        return response
 
     monkeypatch.setattr("sprout.prompt.session.ask_question", fake_ask_question)
 
@@ -34,34 +51,10 @@ def test_collect_answers_skips_question_when_condition_false(
         ),
     ]
 
-    answers = collect_answers(questions, initial_answers={"use_license": True})
+    answers = collect_answers(questions, initial_answers={"use_license": use_license})
 
-    assert calls == []
-    assert answers == {"use_license": True}
-
-
-def test_collect_answers_prompts_when_condition_true(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
-
-    def fake_ask_question(question: Question, answers: dict[str, object], style: object) -> object:
-        calls.append(question.key)
-        return "not needed"
-
-    monkeypatch.setattr("sprout.prompt.session.ask_question", fake_ask_question)
-
-    questions = [
-        Question(key="use_license", prompt="Use a license?"),
-        Question(
-            key="license_reason",
-            prompt="Why no license?",
-            when=lambda answers: answers.get("use_license") is False,
-        ),
-    ]
-
-    answers = collect_answers(questions, initial_answers={"use_license": False})
-
-    assert calls == ["license_reason"]
-    assert answers == {"use_license": False, "license_reason": "not needed"}
+    assert calls == expected_calls
+    assert answers == expected_answers
 
 
 def test_collect_answers_chained_conditions_with_skipped_question(

@@ -72,38 +72,42 @@ def test_git_defaults_extension_handles_missing_git(monkeypatch: pytest.MonkeyPa
     assert env.globals["github_username"] == ""
 
 
-def test_get_github_username_from_ssh_remote(monkeypatch: pytest.MonkeyPatch) -> None:
-    config_map: dict[str, str] = {"user.name": "Bob"}
+@pytest.mark.parametrize(
+    ("config_map", "remotes", "expected_username"),
+    [
+        pytest.param(
+            {"user.name": "Bob"},
+            ["git@github.com:bob-org/repo.git"],
+            "bob-org",
+            id="ssh-remote",
+        ),
+        pytest.param(
+            {"user.name": "fallback-user"},
+            ["https://gitlab.com/group/repo.git"],
+            "fallback-user",
+            id="non-github-remote",
+        ),
+    ],
+)
+def test_git_defaults_resolves_github_username(
+    monkeypatch: pytest.MonkeyPatch,
+    config_map: dict[str, str],
+    remotes: list[str],
+    expected_username: str,
+) -> None:
     monkeypatch.setattr(
         "sprout.extensions.git_defaults._query_git_config",
         lambda key: config_map.get(key, ""),
     )
     monkeypatch.setattr(
         "sprout.extensions.git_defaults._query_local_git_remotes",
-        lambda: ["git@github.com:bob-org/repo.git"],
+        lambda: remotes,
     )
 
     env = Environment()
     GitDefaultsExtension(env)
 
-    assert env.globals["github_username"] == "bob-org"
-
-
-def test_get_github_username_falls_back_to_user_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    config_map: dict[str, str] = {"user.name": "fallback-user"}
-    monkeypatch.setattr(
-        "sprout.extensions.git_defaults._query_git_config",
-        lambda key: config_map.get(key, ""),
-    )
-    monkeypatch.setattr(
-        "sprout.extensions.git_defaults._query_local_git_remotes",
-        lambda: ["https://gitlab.com/group/repo.git"],
-    )
-
-    env = Environment()
-    GitDefaultsExtension(env)
-
-    assert env.globals["github_username"] == "fallback-user"
+    assert env.globals["github_username"] == expected_username
 
 
 def test_git_defaults_ignores_github_lookalike_host_in_local_config(
