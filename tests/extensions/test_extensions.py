@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 from pathlib import Path
 
 import pytest
@@ -98,6 +99,35 @@ def test_get_github_username_falls_back_to_user_name(monkeypatch: pytest.MonkeyP
         "sprout.extensions.git_defaults._query_local_git_remotes",
         lambda: ["https://gitlab.com/group/repo.git"],
     )
+
+    env = Environment()
+    GitDefaultsExtension(env)
+
+    assert env.globals["github_username"] == "fallback-user"
+
+
+def test_git_defaults_ignores_github_lookalike_host_in_local_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    git_dir = tmp_path / ".git"
+    (git_dir / "objects").mkdir(parents=True)
+    (git_dir / "refs").mkdir()
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (git_dir / "config").write_text(
+        "[core]\nrepositoryformatversion = 0\n"
+        "[user]\nname = fallback-user\n"
+        '[remote "origin"]\nurl = https://notgithub.com/foreign/repo\n',
+        encoding="utf-8",
+    )
+    global_config = tmp_path / "global-config"
+    global_config.write_text("", encoding="utf-8")
+    for name in os.environ:
+        if name.startswith("GIT_"):
+            monkeypatch.delenv(name)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.chdir(tmp_path)
 
     env = Environment()
     GitDefaultsExtension(env)

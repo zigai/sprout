@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
+from urllib.parse import urlsplit
 
 from jinja2 import Environment
 from jinja2.ext import Extension
@@ -23,9 +23,22 @@ class GitDefaultsExtension(Extension):
 
     def _get_github_username(self) -> str:
         for remote_url in _query_local_git_remotes():
-            match = re.search(r"github\.com[:/]([^/]+)", remote_url)
-            if match:
-                return match.group(1)
+            if remote_url.startswith("git@github.com:"):
+                path = remote_url.removeprefix("git@github.com:")
+            else:
+                try:
+                    parsed = urlsplit(remote_url)
+                except ValueError:
+                    continue
+
+                if parsed.hostname != "github.com":
+                    continue
+
+                path = parsed.path.lstrip("/")
+
+            owner = path.partition("/")[0]
+            if owner:
+                return owner
 
         return self._get_git_config("user.name")
 
