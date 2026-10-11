@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from pathlib import Path
 
 from rich.text import Text
@@ -203,14 +204,15 @@ def execute_manifest(
     Raises:
         SproutError: If manifest validation or project generation fails.
     """
-    return ManifestExecution(
-        manifest,
-        template_dir=template_dir,
-        destination=destination,
-        force=force,
-        initial_answers=initial_answers,
-        summary=summary,
-    ).execute()
+    with manifest.imports.activate() if manifest.imports is not None else nullcontext():
+        return ManifestExecution(
+            manifest,
+            template_dir=template_dir,
+            destination=destination,
+            force=force,
+            initial_answers=initial_answers,
+            summary=summary,
+        ).execute()
 
 
 def normalize_created_paths(created: Sequence[Path | str], destination: Path) -> list[Path]:

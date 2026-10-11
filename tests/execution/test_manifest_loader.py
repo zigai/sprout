@@ -8,7 +8,9 @@ import pytest
 from jinja2 import Environment
 from jinja2.ext import Extension
 
+from sprout.cli.app import main
 from sprout.errors import SproutManifestError
+from sprout.execution import execute_manifest
 from sprout.manifest_loader import (
     ManifestReader,
     load_manifest,
@@ -211,3 +213,136 @@ def test_load_manifest_rejects_invalid_apply(make_template: TemplateFactory) -> 
 
     with pytest.raises(SproutManifestError, match=r"apply in sprout\.py must be a callable"):
         load_manifest(template_root)
+
+
+def test_main_isolates_local_imports_between_templates(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+) -> None:
+    manifest = """
+        from project_defaults import value
+
+        questions = []
+
+        def apply(context):
+            target = context.destination / "result.txt"
+            target.write_text(value, encoding="utf-8")
+            return [target]
+    """
+    first = make_template(manifest, files={"project_defaults.py": "value = 'first'\n"})
+    second = make_template(manifest, files={"project_defaults.py": "value = 'second'\n"})
+    first_destination = tmp_path / "first"
+    second_destination = tmp_path / "second"
+
+    assert main(["new", str(first), str(first_destination)]) == 0
+    assert main(["new", str(second), str(second_destination)]) == 0
+
+    assert (first_destination / "result.txt").read_text(encoding="utf-8") == "first"
+    assert (second_destination / "result.txt").read_text(encoding="utf-8") == "second"
+
+
+@pytest.mark.parametrize("deferred", [False, True], ids=["sequential", "interleaved"])
+def test_template_isolates_lazy_package_imports(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    deferred: bool,
+) -> None:
+    manifest = """
+        from local_helpers import get_value
+
+        questions = []
+
+        def apply(context):
+            target = context.destination / "result.txt"
+            target.write_text(get_value(), encoding="utf-8")
+            return [target]
+    """
+    helper = """
+        def get_value():
+            from .settings import value
+            return value
+    """
+    first = make_template(
+        manifest,
+        files={
+            "local_helpers/__init__.py": helper,
+            "local_helpers/settings.py": "value = 'first'\n",
+        },
+    )
+    second = make_template(
+        manifest,
+        files={
+            "local_helpers/__init__.py": helper,
+            "local_helpers/settings.py": "value = 'second'\n",
+        },
+    )
+    first_destination = tmp_path / "first"
+    second_destination = tmp_path / "second"
+
+    if deferred:
+        prepared = load_manifest(first)
+        load_manifest(second)
+        execute_manifest(prepared, template_dir=first, destination=first_destination)
+    else:
+        assert main(["new", str(first), str(first_destination)]) == 0
+        assert main(["new", str(second), str(second_destination)]) == 0
+        assert (second_destination / "result.txt").read_text(encoding="utf-8") == "second"
+
+    assert (first_destination / "result.txt").read_text(encoding="utf-8") == "first"
+
+
+@pytest.mark.parametrize("first_helper", ["local_helpers", "outer_helpers"])
+def test_nested_generation_keeps_each_templates_imports(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    first_helper: str,
+) -> None:
+    helper = """
+        value = "initial"
+
+        def get_value():
+            from .settings import value
+            return value
+    """
+    second = make_template(
+        """
+        import local_helpers as helpers
+
+        questions = []
+
+        def apply(context):
+            helpers.value = "second"
+            target = context.destination / "result.txt"
+            target.write_text(helpers.get_value(), encoding="utf-8")
+            return [target]
+        """,
+        files={
+            "local_helpers/__init__.py": helper,
+            "local_helpers/settings.py": "from . import value\n",
+        },
+    )
+    first = make_template(
+        f"""
+        import {first_helper} as helpers
+        from sprout.cli.commands import generate
+
+        questions = []
+
+        def apply(context):
+            helpers.value = "first"
+            generate({str(second)!r}, context.destination / "child")
+            target = context.destination / "result.txt"
+            target.write_text(helpers.get_value(), encoding="utf-8")
+            return [target]
+        """,
+        files={
+            f"{first_helper}/__init__.py": helper,
+            f"{first_helper}/settings.py": "from . import value\n",
+        },
+    )
+    destination = tmp_path / "generated"
+
+    assert main(["new", str(first), str(destination)]) == 0
+
+    assert (destination / "result.txt").read_text(encoding="utf-8") == "first"
+    assert (destination / "child" / "result.txt").read_text(encoding="utf-8") == "second"

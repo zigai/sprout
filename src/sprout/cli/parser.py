@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 from collections.abc import Iterable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -170,9 +171,10 @@ def _load_questions_for_cli(template_src: str, destination: Path) -> PreparedTem
     try:
         template_dir = source.root
         manifest = load_manifest(template_dir)
-        actual_template_dir = resolve_template_directory(template_dir, manifest.template_dir)
-        env = build_environment(actual_template_dir, extensions=manifest.extensions or ())
-        questions = resolve_questions(manifest.questions, env, destination)
+        with manifest.imports.activate() if manifest.imports is not None else nullcontext():
+            actual_template_dir = resolve_template_directory(template_dir, manifest.template_dir)
+            env = build_environment(actual_template_dir, extensions=manifest.extensions or ())
+            questions = resolve_questions(manifest.questions, env, destination)
     except (Exception, KeyboardInterrupt, SystemExit):
         source.close()
         raise

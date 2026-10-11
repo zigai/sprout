@@ -8,6 +8,7 @@ from typing import Literal
 from jinja2 import Environment
 from jinja2.ext import Extension
 
+from sprout.imports import TemplateImports
 from sprout.prompt.question import AnswerMap, DefaultValue, Question
 from sprout.prompt.style import Style
 
@@ -55,6 +56,7 @@ class Manifest:
     extensions: Sequence[type[Extension]] | None = None
     title: str | TitleCallable | None = None
     cli_boolean_style: CliBooleanStyle = "flags"
+    imports: TemplateImports | None = None
 
 
 __all__ = [

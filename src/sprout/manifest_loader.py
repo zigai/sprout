@@ -4,6 +4,7 @@ import importlib.util
 import inspect
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -13,6 +14,7 @@ from jinja2 import Environment
 from jinja2.ext import Extension
 
 from sprout.errors import SproutManifestError
+from sprout.imports import TemplateImports
 from sprout.manifest import (
     ApplyCallable,
     CliBooleanStyle,
@@ -30,6 +32,7 @@ from sprout.prompt.style import Style
 @dataclass(frozen=True)
 class ManifestReader:
     values: Mapping[str, object]
+    imports: TemplateImports | None = None
 
     def optional(self, name: str) -> Any | None:  # noqa: ANN401 - sprout.py entries are user-defined.
         return self.values.get(name)
@@ -48,7 +51,8 @@ class ManifestReader:
             validate_questions_signature(questions_obj)
 
             def resolve(env: Environment, destination: Path) -> Sequence[Question]:
-                return validate_questions_sequence(questions_obj(env, destination))
+                with self.imports.activate() if self.imports is not None else nullcontext():
+                    return validate_questions_sequence(questions_obj(env, destination))
 
             return resolve
 
@@ -64,7 +68,8 @@ class ManifestReader:
         validate_context_hook_signature(apply_obj, "apply")
 
         def apply(context: ManifestContext) -> CreatedPaths:
-            return normalize_apply_result(apply_obj(context))
+            with self.imports.activate() if self.imports is not None else nullcontext():
+                return normalize_apply_result(apply_obj(context))
 
         return apply
 
@@ -113,7 +118,8 @@ class ManifestReader:
             validate_context_hook_signature(title_obj, "title")
 
             def title(context: ManifestContext) -> str | None:
-                result = title_obj(context)
+                with self.imports.activate() if self.imports is not None else nullcontext():
+                    result = title_obj(context)
                 if result is None or isinstance(result, str):
                     return result
 
@@ -156,7 +162,8 @@ class ManifestReader:
         validate_skip_signature(skip_obj)
 
         def should_skip(relative_path: str, answers: AnswerMap) -> bool:
-            result = skip_obj(relative_path, answers)
+            with self.imports.activate() if self.imports is not None else nullcontext():
+                result = skip_obj(relative_path, answers)
             if not isinstance(result, bool):
                 raise SproutManifestError("should_skip_file in sprout.py must return a bool.")
 
@@ -221,30 +228,22 @@ def validate_context_hook_signature(hook: Callable[..., object], hook_name: str)
         )
 
 
-def load_manifest_module(template_dir: Path, manifest_path: Path) -> ModuleType:
+def load_manifest_module(
+    template_dir: Path,
+    manifest_path: Path,
+    *,
+    imports: TemplateImports | None = None,
+) -> ModuleType:
     module_name = "sprout_template_manifest"
     spec = importlib.util.spec_from_file_location(module_name, manifest_path)
     if spec is None or spec.loader is None:
         raise SproutManifestError(f"unable to load manifest from {manifest_path}.")
 
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    template_path = str(template_dir)
-    added_to_path = False
-    try:
-        if template_path not in sys.path:
-            sys.path.insert(0, template_path)
-            added_to_path = True
-
+    scope = imports if imports is not None else TemplateImports(template_dir)
+    with scope.activate():
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
-    finally:
-        if added_to_path:
-            try:
-                sys.path.remove(template_path)
-            except ValueError:
-                pass
-
-        sys.modules.pop(module_name, None)
 
     return module
 
@@ -317,8 +316,9 @@ def load_manifest(template_dir: Path) -> Manifest:
     if not manifest_path.is_file():
         raise SproutManifestError(f"template source {template_dir} is missing sprout.py.")
 
-    module = load_manifest_module(template_dir, manifest_path)
-    reader = ManifestReader(vars(module))
+    imports = TemplateImports(template_dir)
+    module = load_manifest_module(template_dir, manifest_path, imports=imports)
+    reader = ManifestReader(vars(module), imports=imports)
 
     return Manifest(
         questions=reader.questions(),
@@ -329,6 +329,7 @@ def load_manifest(template_dir: Path) -> Manifest:
         extensions=reader.extensions(),
         title=reader.title(),
         cli_boolean_style=reader.cli_boolean_style(),
+        imports=imports,
     )
 
 
