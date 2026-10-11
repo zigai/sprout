@@ -8,6 +8,7 @@ from pathlib import Path
 
 from interfacy.argparse_backend.argument_parser import ArgumentParser, InterfacyHelpFormatter
 
+from sprout.errors import SproutManifestError
 from sprout.execution import resolve_template_directory
 from sprout.extensions.environment import build_environment
 from sprout.manifest import Manifest
@@ -106,31 +107,55 @@ def _has_help_option(args: Sequence[str] | None) -> bool:
     return any(value in _HELP_OPTIONS for value in args) if args else False
 
 
+def _template_argument_candidates(args: Sequence[str]) -> set[tuple[str, ...]]:
+    pending: list[tuple[int, tuple[str, ...], bool]] = [(0, (), False)]
+    seen: set[tuple[int, tuple[str, ...], bool]] = set()
+    completed: set[tuple[str, ...]] = set()
+    while pending:
+        state = pending.pop()
+        if state in seen:
+            continue
+
+        seen.add(state)
+        index, positional, end_of_opts = state
+        if index == len(args):
+            completed.add(positional)
+            continue
+
+        arg_value = args[index]
+        if not end_of_opts and arg_value == "--":
+            pending.append((index + 1, positional, True))
+        elif not end_of_opts and arg_value.startswith("-"):
+            pending.append((index + 1, positional, False))
+            next_index = _consume_optional_value(args, index)
+            if next_index > index + 1:
+                pending.append((next_index, positional, False))
+        elif len(positional) < 2:
+            pending.append((index + 1, (*positional, arg_value), end_of_opts))
+
+    candidates: set[tuple[str, ...]] = {
+        positional for positional in completed if len(positional) == 2
+    }
+    if not candidates or _has_help_option(args):
+        candidates.update(positional for positional in completed if len(positional) < 2)
+
+    return candidates
+
+
 def _extract_template_destination(
     args: Sequence[str] | None,
 ) -> tuple[str | None, Path | None]:
     if not args:
         return None, None
 
-    positional: list[str] = []
-    end_of_opts = False
-    i = 0
-    while i < len(args) and len(positional) < 2:
-        arg_value = args[i]
-        if not end_of_opts and arg_value == "--":
-            end_of_opts = True
-            i += 1
+    candidates = _template_argument_candidates(args)
+    if len(candidates) > 1:
+        raise SproutManifestError(
+            "ambiguous template arguments; put the template and destination "
+            "before template-specific options."
+        )
 
-            continue
-
-        if not end_of_opts and arg_value.startswith("-"):
-            i = _consume_optional_value(args, i)
-            continue
-
-        positional.append(arg_value)
-
-        i += 1
-
+    positional = next(iter(candidates), ())
     template = positional[0] if positional else None
     destination = positional[1] if len(positional) > 1 else None
     if destination is None:

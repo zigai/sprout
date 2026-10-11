@@ -19,6 +19,7 @@ from sprout.cli.parser import (
 from sprout.manifest import Manifest
 from sprout.prompt.question import Question
 from sprout.template_source import TemplateSource
+from tests.support.template_factory import TemplateFactory
 
 
 def _prepared_template(
@@ -483,3 +484,28 @@ def test_build_cli_parser_derives_clean_metavars_and_supports_override(
     assert "--python-version <version>" in help_text
     assert "--project-type <type>" in help_text
     assert "--custom-option <custom>" in help_text
+
+
+def test_main_does_not_execute_destination_manifest_for_leading_boolean_help(
+    make_template: TemplateFactory,
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        questions = [Question.yes_no(key="git_init", prompt="Initialize Git?")]
+        """
+    )
+    destination = make_template(
+        """
+        from pathlib import Path
+
+        Path(__file__).with_name("executed").write_text("wrong manifest", encoding="utf-8")
+        questions = []
+        """
+    )
+
+    with pytest.raises(SystemExit):
+        main(["new", "--git-init", str(template_root), str(destination), "--help"])
+
+    assert not (destination / "executed").exists()
