@@ -509,3 +509,32 @@ def test_main_does_not_execute_destination_manifest_for_leading_boolean_help(
         main(["new", "--git-init", str(template_root), str(destination), "--help"])
 
     assert not (destination / "executed").exists()
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [("a-tag", "a_tag"), ("a__tag", "a_tag")],
+    ids=["punctuation", "nested-separator"],
+)
+def test_main_rejects_colliding_question_keys(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    keys: tuple[str, str],
+) -> None:
+    template_root = make_template(
+        f"""
+        from sprout import Question
+
+        questions = [
+            Question(key={keys[0]!r}, prompt="First tag", default="first", when=False),
+            Question(key={keys[1]!r}, prompt="Second tag", default="second"),
+        ]
+        """,
+        files={"template/result.txt.jinja": "{{ a_tag }}"},
+    )
+    destination = tmp_path / "generated"
+
+    with pytest.raises(SystemExit, match="collid"):
+        main(["new", str(template_root), str(destination), "--a-tag", "provided"])
+
+    assert not destination.exists()

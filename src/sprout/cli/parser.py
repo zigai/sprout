@@ -69,6 +69,7 @@ class CliInvocation:
 
 def sanitize_question_key(key: str) -> str:
     cleaned = re.sub(r"[^0-9a-zA-Z_]", "_", key)
+    cleaned = re.sub(r"_+", "_", cleaned)
     if not cleaned:
         cleaned = "question"
 
@@ -547,11 +548,28 @@ def build_cli_parser(
     return parser
 
 
+def question_cli_destinations(questions: Sequence[Question]) -> dict[str, str]:
+    used_dests: set[str] = set()
+    destinations: dict[str, str] = {}
+    for question in questions:
+        dest = sanitize_question_key(question.key)
+        if dest in used_dests:
+            raise SproutManifestError(
+                f"question key {question.key!r} collides with another CLI key."
+            )
+
+        used_dests.add(dest)
+        destinations[question.key] = dest
+
+    return destinations
+
+
 def _add_question_flags_to_parser(
     new_parser: ArgumentParser,
     prepared: PreparedTemplate,
 ) -> None:
-    used_dests = {"template", "destination", "force", "help"}
+    reserved = {"template", "destination", "force", "help"}
+    destinations = question_cli_destinations(prepared.questions)
     groups: dict[str, argparse._ArgumentGroup] = {
         "project": new_parser.add_argument_group("project"),
         "metadata": new_parser.add_argument_group("metadata"),
@@ -560,11 +578,9 @@ def _add_question_flags_to_parser(
     }
 
     for question in prepared.questions:
-        dest = sanitize_question_key(question.key)
-        if dest in used_dests:
+        dest = destinations.get(question.key)
+        if dest is None or dest in reserved:
             continue
-
-        used_dests.add(dest)
 
         category = _categorize_question(question.key)
         target_container: argparse._ActionsContainer = groups.get(category, new_parser)
@@ -635,6 +651,7 @@ __all__ = [
     "PreparedTemplate",
     "build_cli_parser",
     "prepare_template_for_cli",
+    "question_cli_destinations",
     "registered_templates_for_new_help",
     "resolve_registered_template",
     "sanitize_question_key",
