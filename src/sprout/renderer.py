@@ -85,9 +85,20 @@ class TemplateRenderer:
                 f"rendered path for '{relative.as_posix()}' must not be empty."
             )
 
-        if target_relative.is_absolute() or ".." in target_relative.parts:
+        if (
+            target_relative.is_absolute()
+            or ".." in target_relative.parts
+            or not (self.destination / target_relative)
+            .resolve()
+            .is_relative_to(self.destination.resolve())
+        ):
             raise SproutGenerationError(
                 f"rendered path for '{relative.as_posix()}' must stay within the destination directory."
+            )
+
+        if (self.destination / target_relative).is_dir():
+            raise SproutGenerationError(
+                f"destination '{target_relative}' is a directory, not a file."
             )
 
         return target_relative

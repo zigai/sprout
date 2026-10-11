@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from jinja2 import Environment
 
+from sprout.cli.app import main
 from sprout.errors import (
     SproutGenerationError,
     SproutManifestError,
@@ -28,6 +29,7 @@ from sprout.template_source import (
     _normalise_git_url,
     _resolve_git_executable,
 )
+from tests.support.template_factory import TemplateFactory
 
 
 def test_ensure_destination_creates_directory(tmp_path: Path) -> None:
@@ -576,3 +578,46 @@ def test_resolve_git_executable_and_url_normalisation(monkeypatch: pytest.Monkey
     assert _normalise_git_url("https://example.com/repo.git") == "https://example.com/repo.git"
     assert _normalise_git_url("owner/repo.git") == "https://github.com/owner/repo.git"
     assert _normalise_git_url("local/path with space") == "local/path with space"
+
+
+@pytest.mark.parametrize("suffix", [".txt", ".txt.jinja"], ids=["copy", "render"])
+@pytest.mark.parametrize("directory_link", [False, True], ids=["file-link", "directory-link"])
+def test_main_rejects_destination_symlink_escape(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    suffix: str,
+    directory_link: bool,
+) -> None:
+    relative = f"folder/target{suffix}" if directory_link else f"target{suffix}"
+    template_root = make_template("questions = []", files={f"template/{relative}": "replacement"})
+    destination = tmp_path / "generated"
+    destination.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "target.txt"
+    protected.write_text("protected", encoding="utf-8")
+    link = destination / ("folder" if directory_link else "target.txt")
+    link.symlink_to(outside if directory_link else protected, target_is_directory=directory_link)
+
+    with pytest.raises(SystemExit, match="stay within the destination"):
+        main(["new", str(template_root), str(destination), "--force"])
+
+    assert protected.read_text(encoding="utf-8") == "protected"
+
+
+def test_main_rejects_copy_target_directory_with_outside_link(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+) -> None:
+    template_root = make_template("questions = []", files={"template/a.txt": "replacement"})
+    destination = tmp_path / "generated"
+    target_directory = destination / "a.txt"
+    target_directory.mkdir(parents=True)
+    protected = tmp_path / "protected.txt"
+    protected.write_text("protected", encoding="utf-8")
+    (target_directory / "a.txt").symlink_to(protected)
+
+    with pytest.raises(SystemExit):
+        main(["new", str(template_root), str(destination), "--force"])
+
+    assert protected.read_text(encoding="utf-8") == "protected"
