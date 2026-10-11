@@ -561,3 +561,29 @@ def test_main_question_flag_cannot_enable_force(
         main(["new", str(template_root), str(destination), "--no-x--force"])
 
     assert protected.read_text(encoding="utf-8") == "protected"
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [("--no-backup", "True"), ("--no-no-backup", "False")],
+    ids=["positive", "negative"],
+)
+def test_main_preserves_boolean_polarity_for_negative_prefix_keys(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    flag: str,
+    expected: str,
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        questions = [Question.yes_no(key="no_backup", prompt="Disable backup?")]
+        """,
+        files={"template/result.txt.jinja": "{{ no_backup }}"},
+    )
+    destination = tmp_path / "generated"
+
+    assert main(["new", str(template_root), str(destination), flag]) == 0
+
+    assert (destination / "result.txt").read_text(encoding="utf-8") == expected

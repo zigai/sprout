@@ -284,7 +284,7 @@ class BooleanPairAction(argparse.Action):
         option_string: str | None = None,
     ) -> None:
         del values
-        current = "no" if option_string and option_string.startswith("--no-") else "yes"
+        current = "no" if option_string == self.option_strings[1] else "yes"
         prior = getattr(namespace, self.dest, None)
         if prior is not None and prior != current:
             parser.error(f"argument {option_string}: not allowed with conflicting boolean option")
