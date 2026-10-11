@@ -8,9 +8,11 @@ import pytest
 from rich.console import Console
 
 from sprout.cli.app import main
+from sprout.errors import SproutScaffoldError
 from sprout.prompt.question import Question
 from sprout.prompt.style import Style
 from sprout.registry import TemplateRegistry, TrustedTemplate
+from sprout.scaffold import create_template_scaffold
 from sprout.template_source import TemplateSource
 from tests.support.template_factory import TemplateFactory
 
@@ -55,6 +57,65 @@ def test_init_preflights_all_targets_before_writing(tmp_path: Path) -> None:
         main(["init", str(root)])
 
     assert not (root / "template" / "README.md.jinja").exists()
+
+
+def test_init_preserves_manifest_created_during_write(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "template-source"
+    root.mkdir()
+    manifest = root / "sprout.py"
+    original_open = Path.open
+
+    def open_with_competing_file(
+        self: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> IO[str] | IO[bytes]:
+        if self == manifest and not manifest.exists():
+            with original_open(manifest, "x", encoding="utf-8") as file:
+                file.write("concurrent content\n")
+
+        return original_open(self, mode, buffering, encoding, errors, newline)
+
+    monkeypatch.setattr(Path, "open", open_with_competing_file)
+
+    with pytest.raises(SystemExit):
+        main(["init", str(root)])
+
+    assert manifest.read_text(encoding="utf-8") == "concurrent content\n"
+    assert not (root / "template" / "README.md.jinja").exists()
+
+
+def test_create_template_scaffold_translates_filesystem_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "template"
+    cause = OSError("platform-specific detail")
+
+    def fail_open(
+        self: Path,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> None:
+        del self, mode, buffering, encoding, errors, newline
+        raise cause
+
+    monkeypatch.setattr(Path, "open", fail_open)
+
+    with pytest.raises(SproutScaffoldError) as raised:
+        create_template_scaffold(root)
+
+    assert str(raised.value) == f"failed to create template scaffold at {root}."
+    assert raised.value.__cause__ is cause
 
 
 def test_initialized_scaffold_generates_a_project(tmp_path: Path) -> None:
@@ -129,6 +190,24 @@ def test_add_duplicate_requires_and_honors_confirmation(
     entry = TemplateRegistry().find("demo")
     assert entry is not None
     assert entry.source == "owner/two"
+
+
+def test_add_does_not_replace_alias_added_after_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_find = TemplateRegistry.find
+
+    def find_and_add(self: TemplateRegistry, name: str) -> TrustedTemplate | None:
+        existing = original_find(self, name)
+        self.save(TrustedTemplate(name="demo", source="owner/first"))
+        return existing
+
+    monkeypatch.setattr(TemplateRegistry, "find", find_and_add)
+
+    with pytest.raises(SystemExit):
+        main(["add", "owner/second", "--name", "demo"])
+
+    assert TemplateRegistry().entries() == (TrustedTemplate(name="demo", source="owner/first"),)
 
 
 def test_list_displays_entries_in_name_order(
@@ -235,53 +314,3 @@ def test_registered_remote_alias_is_prepared_fresh_for_each_run(
     assert main(["new", "demo", str(tmp_path / "two")]) == 0
     assert prepared_sources == ["owner/repo", "owner/repo"]
     assert cleanup_calls == ["owner/repo", "owner/repo"]
-
-
-def test_add_does_not_replace_alias_added_after_lookup(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original_find = TemplateRegistry.find
-
-    def find_and_add(self: TemplateRegistry, name: str) -> TrustedTemplate | None:
-        existing = original_find(self, name)
-        self.save(TrustedTemplate(name="demo", source="owner/first"))
-        return existing
-
-    monkeypatch.setattr(TemplateRegistry, "find", find_and_add)
-
-    with pytest.raises(SystemExit):
-        main(["add", "owner/second", "--name", "demo"])
-
-    assert TemplateRegistry().entries() == (TrustedTemplate(name="demo", source="owner/first"),)
-
-
-def test_init_preserves_manifest_created_during_write(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "template-source"
-    root.mkdir()
-    manifest = root / "sprout.py"
-    original_open = Path.open
-
-    def open_with_competing_file(
-        self: Path,
-        mode: str = "r",
-        buffering: int = -1,
-        encoding: str | None = None,
-        errors: str | None = None,
-        newline: str | None = None,
-    ) -> IO[str] | IO[bytes]:
-        if self == manifest and not manifest.exists():
-            with original_open(manifest, "x", encoding="utf-8") as file:
-                file.write("concurrent content\n")
-
-        return original_open(self, mode, buffering, encoding, errors, newline)
-
-    monkeypatch.setattr(Path, "open", open_with_competing_file)
-
-    with pytest.raises(SystemExit):
-        main(["init", str(root)])
-
-    assert manifest.read_text(encoding="utf-8") == "concurrent content\n"
-    assert not (root / "template" / "README.md.jinja").exists()

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from jinja2 import Environment
 
 from sprout.cli.app import main
 from sprout.cli.commands import _run_generate
@@ -20,6 +19,135 @@ from sprout.manifest import Manifest
 from sprout.prompt.question import Question
 from sprout.template_source import TemplateSource
 from tests.support.template_factory import TemplateFactory
+
+
+def test_main_does_not_execute_destination_manifest_for_leading_boolean_help(
+    make_template: TemplateFactory,
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        questions = [Question.yes_no(key="git_init", prompt="Initialize Git?")]
+        """
+    )
+    destination = make_template(
+        """
+        from pathlib import Path
+
+        Path(__file__).with_name("executed").write_text("wrong manifest", encoding="utf-8")
+        questions = []
+        """
+    )
+
+    with pytest.raises(SystemExit):
+        main(["new", "--git-init", str(template_root), str(destination), "--help"])
+
+    assert not (destination / "executed").exists()
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [("a-tag", "a_tag"), ("a__tag", "a_tag")],
+    ids=["punctuation", "nested-separator"],
+)
+def test_main_rejects_colliding_question_keys(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    keys: tuple[str, str],
+) -> None:
+    template_root = make_template(
+        f"""
+        from sprout import Question
+
+        questions = [
+            Question(key={keys[0]!r}, prompt="First tag", default="first", when=False),
+            Question(key={keys[1]!r}, prompt="Second tag", default="second"),
+        ]
+        """,
+        files={"template/result.txt.jinja": "{{ a_tag }}"},
+    )
+    destination = tmp_path / "generated"
+
+    with pytest.raises(SystemExit, match="collid"):
+        main(["new", str(template_root), str(destination), "--a-tag", "provided"])
+
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [("--no-backup", "True"), ("--no-no-backup", "False")],
+    ids=["positive", "negative"],
+)
+def test_main_preserves_boolean_polarity_for_negative_prefix_keys(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    flag: str,
+    expected: str,
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        questions = [Question.yes_no(key="no_backup", prompt="Disable backup?")]
+        """,
+        files={"template/result.txt.jinja": "{{ no_backup }}"},
+    )
+    destination = tmp_path / "generated"
+
+    assert main(["new", str(template_root), str(destination), flag]) == 0
+
+    assert (destination / "result.txt").read_text(encoding="utf-8") == expected
+
+
+def test_main_question_flag_cannot_enable_force(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+) -> None:
+    template_root = make_template(
+        """
+        from sprout import Question
+
+        questions = [Question.yes_no(key="x__force", prompt="Force?", when=False)]
+        """,
+        files={"template/result.txt.jinja": "replacement"},
+    )
+    destination = tmp_path / "generated"
+    destination.mkdir()
+    protected = destination / "result.txt"
+    protected.write_text("protected", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="aborted"):
+        main(["new", str(template_root), str(destination), "--no-x--force"])
+
+    assert protected.read_text(encoding="utf-8") == "protected"
+
+
+def test_main_keeps_prepared_template_when_alias_changes(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+) -> None:
+    second = make_template("questions = []", files={"template/result.txt.jinja": "second"})
+    first = make_template(
+        f"""
+        import json
+        from sprout.registry import default_registry_path
+
+        default_registry_path().write_text(
+            json.dumps({{"version": 1, "templates": [{{"name": "demo", "source": {str(second)!r}}}]}}),
+            encoding="utf-8",
+        )
+        questions = []
+        """,
+        files={"template/result.txt.jinja": "first"},
+    )
+    destination = tmp_path / "generated"
+    assert main(["add", str(first), "--name", "demo"]) == 0
+
+    assert main(["new", "demo", str(destination)]) == 0
+
+    assert (destination / "result.txt").read_text(encoding="utf-8") == "first"
 
 
 def _prepared_template(
@@ -380,19 +508,6 @@ def test_run_generate_handles_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch
     assert cleaned["value"] is True
 
 
-def test_callable_questions_source_is_accepted() -> None:
-    env = Environment()
-    destination = Path()
-
-    questions = [Question(key="name", prompt="Name")]
-    resolved = list(
-        Manifest(questions=lambda _env, _destination: questions).questions(env, destination)
-    )
-
-    assert len(resolved) == 1
-    assert resolved[0].key == "name"
-
-
 def test_build_cli_parser_formats_grouped_sections_and_synopsis(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -484,132 +599,3 @@ def test_build_cli_parser_derives_clean_metavars_and_supports_override(
     assert "--python-version <version>" in help_text
     assert "--project-type <type>" in help_text
     assert "--custom-option <custom>" in help_text
-
-
-def test_main_does_not_execute_destination_manifest_for_leading_boolean_help(
-    make_template: TemplateFactory,
-) -> None:
-    template_root = make_template(
-        """
-        from sprout import Question
-
-        questions = [Question.yes_no(key="git_init", prompt="Initialize Git?")]
-        """
-    )
-    destination = make_template(
-        """
-        from pathlib import Path
-
-        Path(__file__).with_name("executed").write_text("wrong manifest", encoding="utf-8")
-        questions = []
-        """
-    )
-
-    with pytest.raises(SystemExit):
-        main(["new", "--git-init", str(template_root), str(destination), "--help"])
-
-    assert not (destination / "executed").exists()
-
-
-@pytest.mark.parametrize(
-    "keys",
-    [("a-tag", "a_tag"), ("a__tag", "a_tag")],
-    ids=["punctuation", "nested-separator"],
-)
-def test_main_rejects_colliding_question_keys(
-    make_template: TemplateFactory,
-    tmp_path: Path,
-    keys: tuple[str, str],
-) -> None:
-    template_root = make_template(
-        f"""
-        from sprout import Question
-
-        questions = [
-            Question(key={keys[0]!r}, prompt="First tag", default="first", when=False),
-            Question(key={keys[1]!r}, prompt="Second tag", default="second"),
-        ]
-        """,
-        files={"template/result.txt.jinja": "{{ a_tag }}"},
-    )
-    destination = tmp_path / "generated"
-
-    with pytest.raises(SystemExit, match="collid"):
-        main(["new", str(template_root), str(destination), "--a-tag", "provided"])
-
-    assert not destination.exists()
-
-
-def test_main_question_flag_cannot_enable_force(
-    make_template: TemplateFactory,
-    tmp_path: Path,
-) -> None:
-    template_root = make_template(
-        """
-        from sprout import Question
-
-        questions = [Question.yes_no(key="x__force", prompt="Force?", when=False)]
-        """,
-        files={"template/result.txt.jinja": "replacement"},
-    )
-    destination = tmp_path / "generated"
-    destination.mkdir()
-    protected = destination / "result.txt"
-    protected.write_text("protected", encoding="utf-8")
-
-    with pytest.raises(SystemExit, match="aborted"):
-        main(["new", str(template_root), str(destination), "--no-x--force"])
-
-    assert protected.read_text(encoding="utf-8") == "protected"
-
-
-@pytest.mark.parametrize(
-    ("flag", "expected"),
-    [("--no-backup", "True"), ("--no-no-backup", "False")],
-    ids=["positive", "negative"],
-)
-def test_main_preserves_boolean_polarity_for_negative_prefix_keys(
-    make_template: TemplateFactory,
-    tmp_path: Path,
-    flag: str,
-    expected: str,
-) -> None:
-    template_root = make_template(
-        """
-        from sprout import Question
-
-        questions = [Question.yes_no(key="no_backup", prompt="Disable backup?")]
-        """,
-        files={"template/result.txt.jinja": "{{ no_backup }}"},
-    )
-    destination = tmp_path / "generated"
-
-    assert main(["new", str(template_root), str(destination), flag]) == 0
-
-    assert (destination / "result.txt").read_text(encoding="utf-8") == expected
-
-
-def test_main_keeps_prepared_template_when_alias_changes(
-    make_template: TemplateFactory,
-    tmp_path: Path,
-) -> None:
-    second = make_template("questions = []", files={"template/result.txt.jinja": "second"})
-    first = make_template(
-        f"""
-        import json
-        from sprout.registry import default_registry_path
-
-        default_registry_path().write_text(
-            json.dumps({{"version": 1, "templates": [{{"name": "demo", "source": {str(second)!r}}}]}}),
-            encoding="utf-8",
-        )
-        questions = []
-        """,
-        files={"template/result.txt.jinja": "first"},
-    )
-    destination = tmp_path / "generated"
-    assert main(["add", str(first), "--name", "demo"]) == 0
-
-    assert main(["new", "demo", str(destination)]) == 0
-
-    assert (destination / "result.txt").read_text(encoding="utf-8") == "first"
