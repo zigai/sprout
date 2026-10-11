@@ -621,3 +621,27 @@ def test_main_rejects_copy_target_directory_with_outside_link(
         main(["new", str(template_root), str(destination), "--force"])
 
     assert protected.read_text(encoding="utf-8") == "protected"
+
+
+@pytest.mark.parametrize("suffix", [".txt", ".txt.jinja"], ids=["copy", "render"])
+def test_main_does_not_overwrite_outside_hard_link(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    suffix: str,
+) -> None:
+    template_root = make_template("questions = []", files={f"template/a{suffix}": "replacement"})
+    destination = tmp_path / "generated"
+    destination.mkdir()
+    protected = tmp_path / "protected.txt"
+    protected.write_text("protected", encoding="utf-8")
+    protected.chmod(0o755)
+    mode = protected.stat().st_mode
+    (destination / "a.txt").hardlink_to(protected)
+
+    assert main(["new", str(template_root), str(destination), "--force"]) == 0
+
+    assert protected.read_text(encoding="utf-8") == "protected"
+    assert protected.stat().st_mode == mode
+    assert (destination / "a.txt").read_text(encoding="utf-8") == "replacement"
+    if suffix == ".txt.jinja":
+        assert (destination / "a.txt").stat().st_mode == mode

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import shutil
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -53,7 +54,7 @@ class TemplateRenderer:
         self.ignore_patterns = _merge_ignore_patterns(ignore)
 
     def render(self) -> list[Path]:
-        created: list[Path] = []
+        planned: list[tuple[Path, Path, str]] = []
 
         for source in sorted(self.template_dir.rglob("*")):
             if source.is_dir() or _should_ignore_path(source, self.ignore_patterns):
@@ -65,10 +66,48 @@ class TemplateRenderer:
                 continue
 
             target_relative = self._resolve_target_relative(source, relative)
-            self._render_source_file(source, target_relative, relative_str)
-            created.append(target_relative)
+            planned.append((source, target_relative, relative_str))
 
-        return created
+        if not planned:
+            return []
+
+        try:
+            self.destination.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".sprout-", dir=self.destination) as directory:
+                staging = Path(directory)
+                self._stage_files(planned, staging)
+
+                for source, target_relative, _relative_str in planned:
+                    target = (self.destination / target_relative).resolve()
+                    if not target.is_relative_to(self.destination.resolve()):
+                        raise SproutGenerationError(
+                            f"'{target_relative}' must stay within the destination directory."
+                        )
+
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if source.suffix == ".jinja" and target.exists():
+                        shutil.copymode(target, staging / target_relative)
+                    (staging / target_relative).replace(target)
+        except OSError as e:
+            raise SproutGenerationError("failed to write generated files.") from e
+
+        return [target_relative for _source, target_relative, _relative_str in planned]
+
+    def _stage_files(
+        self,
+        planned: Sequence[tuple[Path, Path, str]],
+        staging: Path,
+    ) -> None:
+        for source, target_relative, relative_str in planned:
+            target = staging / target_relative
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+            except FileExistsError as e:
+                raise SproutGenerationError(
+                    f"'{relative_str}' conflicts with another destination path."
+                ) from e
+
+            self._render_source_file(source, target_relative, relative_str, destination=staging)
 
     def _resolve_target_relative(self, source: Path, relative: Path) -> Path:
         if self.render_paths:
@@ -103,13 +142,19 @@ class TemplateRenderer:
 
         return target_relative
 
-    def _render_source_file(self, source: Path, target_relative: Path, relative_str: str) -> None:
-        target_path = self.destination / target_relative
+    def _render_source_file(
+        self,
+        source: Path,
+        target_relative: Path,
+        relative_str: str,
+        *,
+        destination: Path,
+    ) -> None:
+        target_path = destination / target_relative
         if source.suffix == ".jinja":
             template = self.env.get_template(relative_str)
             rendered = template.render(**self.answers)
             try:
-                target_path.parent.mkdir(parents=True, exist_ok=True)
                 target_path.write_text(rendered, encoding="utf-8")
             except OSError as e:
                 raise SproutGenerationError(
@@ -119,7 +164,6 @@ class TemplateRenderer:
             return
 
         try:
-            target_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target_path)
         except OSError as e:
             raise SproutGenerationError(
