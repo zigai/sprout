@@ -587,3 +587,29 @@ def test_main_preserves_boolean_polarity_for_negative_prefix_keys(
     assert main(["new", str(template_root), str(destination), flag]) == 0
 
     assert (destination / "result.txt").read_text(encoding="utf-8") == expected
+
+
+def test_main_keeps_prepared_template_when_alias_changes(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+) -> None:
+    second = make_template("questions = []", files={"template/result.txt.jinja": "second"})
+    first = make_template(
+        f"""
+        import json
+        from sprout.registry import default_registry_path
+
+        default_registry_path().write_text(
+            json.dumps({{"version": 1, "templates": [{{"name": "demo", "source": {str(second)!r}}}]}}),
+            encoding="utf-8",
+        )
+        questions = []
+        """,
+        files={"template/result.txt.jinja": "first"},
+    )
+    destination = tmp_path / "generated"
+    assert main(["add", str(first), "--name", "demo"]) == 0
+
+    assert main(["new", "demo", str(destination)]) == 0
+
+    assert (destination / "result.txt").read_text(encoding="utf-8") == "first"

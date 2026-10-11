@@ -230,7 +230,7 @@ def _run_new_command(
                 cli_answers[key] = values[dest]
 
     return _run_generate(
-        resolve_registered_template(template),
+        prepared.template_src if prepared is not None else resolve_registered_template(template),
         destination,
         force=bool(values.get("force", False)),
         initial_answers=cli_answers or None,
