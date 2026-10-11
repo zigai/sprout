@@ -220,18 +220,13 @@ class ProjectPostActions:
             str(self.answers.get(self.options.visibility_key) or self.options.default_visibility),
             default=self.options.default_visibility,
         )
-        command = [
-            gh_executable,
-            "repo",
-            "create",
-            github_repository_target(
-                self.answers,
-                repository_url_key=self.options.repository_url_key,
-                repo_name_key=self.options.repo_name_key,
-                fallback_repo_name=self.options.fallback_repo_name,
-            ),
-            f"--{visibility}",
-        ]
+        repository_target = github_repository_target(
+            self.answers,
+            repository_url_key=self.options.repository_url_key,
+            repo_name_key=self.options.repo_name_key,
+            fallback_repo_name=self.options.fallback_repo_name,
+        )
+        command = [gh_executable, "repo", "create", f"--{visibility}"]
         description = str(self.answers.get(self.options.description_key) or "").strip()
         if description:
             command.extend(["--description", description])
@@ -242,6 +237,7 @@ class ProjectPostActions:
                 ["--source", str(self.destination), "--remote", self.options.remote_name]
             )
 
+        command.extend(["--", repository_target])
         result = subprocess.run(  # noqa: S603
             command,
             cwd=self.destination,

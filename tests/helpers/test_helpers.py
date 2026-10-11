@@ -179,7 +179,6 @@ def test_run_git_post_actions_creates_initial_commit_and_github_repo(
         "/usr/bin/gh",
         "repo",
         "create",
-        "zigai/demo",
         "--private",
         "--description",
         "Demo project.",
@@ -187,6 +186,8 @@ def test_run_git_post_actions_creates_initial_commit_and_github_repo(
         str(tmp_path),
         "--remote",
         "origin",
+        "--",
+        "zigai/demo",
     ] in commands
     assert [
         "/usr/bin/git",
@@ -307,3 +308,29 @@ def test_repository_git_url_preserves_revision_fragment() -> None:
         repository_git_url("https://github.com/team/repo#main")
         == "git+https://github.com/team/repo.git#main"
     )
+
+
+def test_create_github_repo_passes_option_like_name_as_argument(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(
+        "sprout.helpers.post_actions.shutil.which",
+        lambda name: "/usr/bin/gh" if name == "gh" else None,
+    )
+    monkeypatch.setattr("sprout.helpers.post_actions.subprocess.run", fake_run)
+
+    ProjectPostActions(
+        tmp_path,
+        {"repo_name": "--help"},
+        console=FakeConsole(),
+    ).create_github_repo()
+
+    assert commands[0][-2:] == ["--", "--help"]
