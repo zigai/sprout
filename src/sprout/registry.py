@@ -139,7 +139,7 @@ def _parse_config(raw_config: JsonValue, path: Path) -> list[TrustedTemplate]:
         raise SproutRegistryError(f"template registry {path} must contain a JSON object.")
 
     version = raw_config.get("version")
-    if version != CONFIG_VERSION:
+    if type(version) is not int or version != CONFIG_VERSION:
         raise SproutRegistryError(
             f"template registry {path} uses unsupported version {version!r}; "
             f"expected {CONFIG_VERSION}."

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from platformdirs import user_config_path
 
+from sprout.cli.app import main
 from sprout.errors import SproutRegistryError
 from sprout.registry import (
     TemplateRegistry,
@@ -143,3 +144,13 @@ def test_template_source_normalization_and_name_derivation(tmp_path: Path) -> No
 
 def test_template_name_derivation_supports_windows_paths() -> None:
     assert derive_template_name(r"C:\templates\local-template") == "local-template"
+
+
+@pytest.mark.parametrize("version", [True, 1.0], ids=["boolean", "float"])
+def test_list_rejects_non_integer_registry_version(version: object) -> None:
+    path = default_registry_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": version, "templates": []}), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="unsupported version"):
+        main(["list"])
