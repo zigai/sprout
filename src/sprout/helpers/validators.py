@@ -57,7 +57,11 @@ def validate_npm_package_name(
     name = value.strip()
     if not name:
         return False, "Package name is required."
-    if not NPM_PACKAGE_NAME_PATTERN.fullmatch(name):
+    if (
+        len(name) > 214
+        or name in {"node_modules", "favicon.ico"}
+        or not NPM_PACKAGE_NAME_PATTERN.fullmatch(name)
+    ):
         return False, "Package name must be a valid lowercase npm package name."
     return True, None
 
