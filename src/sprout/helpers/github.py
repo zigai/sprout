@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from urllib.parse import urlsplit, urlunsplit
 
 GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
@@ -79,13 +80,16 @@ def github_repository_target(
 
 
 def repository_git_url(url: str) -> str:
-    cleaned = url.rstrip("/")
+    parsed = urlsplit(url)
+    parsed = parsed._replace(path=parsed.path.rstrip("/"))
+    cleaned = urlunsplit(parsed)
     if cleaned.startswith("git+"):
         return cleaned
 
-    repository = parse_github_repository_url(cleaned)
+    repository = parse_github_repository_url(urlunsplit(parsed._replace(query="", fragment="")))
     if repository is not None:
-        return repository.git_url
+        git_url = urlsplit(repository.git_url)
+        return urlunsplit(git_url._replace(query=parsed.query, fragment=parsed.fragment))
 
     return f"git+{cleaned}"
 

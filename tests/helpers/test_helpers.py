@@ -300,3 +300,10 @@ def test_run_git_post_actions_initializes_git_without_github(
     assert result.initial_commit_ready is True
     assert result.github_repository_created is False
     assert ["/usr/bin/git", "commit", "-m", "chore: initialize project"] in commands
+
+
+def test_repository_git_url_preserves_revision_fragment() -> None:
+    assert (
+        repository_git_url("https://github.com/team/repo#main")
+        == "git+https://github.com/team/repo.git#main"
+    )
