@@ -656,3 +656,25 @@ def test_fallback_choice_rejects_default_outside_choices(
     )
 
     assert QuestionPrompt(question, {}, Style()).ask() == expected
+
+
+@pytest.mark.parametrize(
+    ("responses", "expected"),
+    [(["Preview"], "dry-run"), (["PREVIEW"], "publish"), (["preview", "1"], "dry-run")],
+    ids=["first-label", "second-label", "ambiguous-label"],
+)
+def test_fallback_choice_preserves_label_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    responses: list[str],
+    expected: str,
+) -> None:
+    inputs = iter(responses)
+    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: False)
+    monkeypatch.setattr("sprout.prompt.terminal.console.input", lambda _prompt: next(inputs))
+    question = Question(
+        key="action",
+        prompt="Action",
+        choices=[("dry-run", "Preview"), ("publish", "PREVIEW")],
+    )
+
+    assert QuestionPrompt(question, {}, Style()).ask() == expected

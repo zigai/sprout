@@ -522,6 +522,12 @@ class FallbackChoicePrompt:
         if any(token == value for value, _label in self.choices):
             return token
 
+        matches = {value for value, label in self.choices if token == label}
+        if len(matches) == 1:
+            return matches.pop()
+        if matches:
+            return None
+
         lower = token.lower()
         if lower in self.value_map:
             return self.value_map[lower]
@@ -573,9 +579,13 @@ def print_fallback_choices(
 
 def fallback_lookup_maps(
     choices: Sequence[Choice],
-) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-    value_map = {value.lower(): value for value, _ in choices}
-    label_map = {label.lower(): value for value, label in choices}
+) -> tuple[dict[str, str | None], dict[str, str | None], dict[str, str]]:
+    value_map: dict[str, str | None] = {}
+    label_map: dict[str, str | None] = {}
+    for value, label in choices:
+        for key, mapping in ((value.lower(), value_map), (label.lower(), label_map)):
+            mapping[key] = value if key not in mapping or mapping[key] == value else None
+
     index_map = {str(idx): value for idx, (value, _) in enumerate(choices, start=1)}
 
     return value_map, label_map, index_map
