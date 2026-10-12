@@ -583,7 +583,7 @@ wheels = [
 
 [[package]]
 name = "rattle-lint"
-version = "3.2.0"
+version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "interfacy" },
@@ -594,9 +594,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "trailrunner" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/09/b5/6506759e7a9684f0ec8b504bb6528dd23d9472c3504230307ab71a0e4040/rattle_lint-3.2.0.tar.gz", hash = "sha256:88c71765fafbd455da8d6bc373c18af601f42251888f4770b95675a3336c79af", size = 342607, upload-time = "2026-10-11T21:18:25.343Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/52/aaa432017824d5ad23f2d19f4d264bc33f02ffa9577d14260e0343055737/rattle_lint-3.3.0.tar.gz", hash = "sha256:9bbc19c161642e02033b2e317c7209abc2270690bf27c62a241b0eb2be3d706b", size = 327666, upload-time = "2026-10-12T01:06:45.527Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d5/6c/db1d9e3f48fa17f33ee73ce3119908ededf1db166b7e03143d007bc0eea4/rattle_lint-3.2.0-py3-none-any.whl", hash = "sha256:e1ee78336c82ee98064c6d2191dc00a6ca7e6298bec619b762cb3561ea0194a7", size = 213048, upload-time = "2026-10-11T21:18:23.784Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/3f/12a77deda116388666d2ef225aec9ddc7a4be49b688dcd4664336225e63e/rattle_lint-3.3.0-py3-none-any.whl", hash = "sha256:b1930f2e3a337cf8e18948f134eb8ac1e43af6b49477b273982e8c744b1e84db", size = 213123, upload-time = "2026-10-12T01:06:44.279Z" },
 ]
 
 [[package]]
@@ -760,7 +760,7 @@ requires-dist = [
     { name = "pyrefly", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.3" },
-    { name = "rattle-lint", marker = "extra == 'dev'", specifier = ">=3.2.0" },
+    { name = "rattle-lint", marker = "extra == 'dev'", specifier = ">=3.3.0" },
     { name = "rich", specifier = ">=13" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.10" },
 ]
@@ -773,7 +773,7 @@ dev = [
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pyrefly", specifier = ">=1.0.0" },
     { name = "pytest", specifier = ">=9.0.3" },
-    { name = "rattle-lint", specifier = ">=3.2.0" },
+    { name = "rattle-lint", specifier = ">=3.3.0" },
     { name = "ruff", specifier = "==0.16.10" },
 ]
 test = [
