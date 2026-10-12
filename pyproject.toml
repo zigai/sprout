@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "interfacy>=0.9.0",
+    "interfacy>=0.9.1",
     "jinja2>=3.0",
     "platformdirs>=4.5.1",
     "prompt-toolkit>=3.0.52",
@@ -39,7 +39,7 @@ dev = [
     "pre-commit>=4.6.0",
     "pyrefly>=1.0.0",
     "codespell>=2.4.2",
-    "rattle-lint>=3.0.0",
+    "rattle-lint>=3.2.0",
 ]
 
 [project.urls]
@@ -255,5 +255,5 @@ dev = [
     "pre-commit>=4.6.0",
     "pyrefly>=1.0.0",
     "codespell>=2.4.2",
-    "rattle-lint>=3.0.0",
+    "rattle-lint>=3.2.0",
 ]
