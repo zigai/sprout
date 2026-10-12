@@ -208,15 +208,18 @@ def test_format_question_help_keeps_prompt_and_multiselect_note() -> None:
 @pytest.mark.parametrize(
     ("args", "expected_help"),
     [
-        (["init", "--help"], "Directory where the scaffold should be created"),
-        (["add", "--help"], "Local path, Git URL, or GitHub owner/repo shorthand"),
-        (["add", "--help"], "Trusted template name; prompts when omitted"),
-        (["new", "--help"], "Trusted name, local path, or Git repository"),
-        (["new", "--help"], "Target directory for the generated project"),
-        (["new", "--help"], "Overwrite files in the destination directory"),
+        (["init", "--help"], "[DIRECTORY]  Directory where the scaffold should be created"),
+        (["add", "--help"], "SOURCE       Local path, Git URL, or GitHub owner/repo shorthand"),
+        (["add", "--help"], "--name NAME           Trusted template name; prompts when omitted"),
+        (["new", "--help"], "TEMPLATE     Trusted name, local path, or Git repository containing"),
+        (["new", "--help"], "DESTINATION  Target directory for the generated project"),
+        (
+            ["new", "--help"],
+            "--force               Overwrite files in the destination directory if they",
+        ),
     ],
 )
-def test_command_help_lists_argument_descriptions(
+def test_command_help_uses_aligned_sentence_case_descriptions(
     args: list[str],
     expected_help: str,
     capsys: pytest.CaptureFixture[str],
@@ -309,8 +312,7 @@ def test_build_cli_parser_defaults_yes_no_questions_to_boolean_flags(
 
     assert parsed_yes.new.include_license == "yes"
     assert parsed_no.new.include_license == "no"
-    assert "--include-license" in help_text
-    assert "--no-include-license" in help_text
+    assert "--[no-]include-license" in help_text
     assert "choices: yes, no" not in help_text
 
 
@@ -427,7 +429,7 @@ def test_main_template_only_help_preloads_questions(
 
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
-    assert "--name <NAME>" in output
+    assert "--name <name>" in output
     assert captured["template_src"] == "template"
     assert captured["destination"] == (Path.cwd() / "__sprout_help_destination__").resolve()
     assert cleanup_called["value"] is True
@@ -471,7 +473,7 @@ def test_main_destination_help_uses_real_destination(
 
     assert exit_info.value.code == 0
     output = capsys.readouterr().out
-    assert "--name <NAME>" in output
+    assert "--name <name>" in output
     assert captured["template_src"] == "template"
     assert captured["destination"] == Path("destination").expanduser().resolve()
 
@@ -506,7 +508,7 @@ def test_run_generate_handles_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch
     assert cleaned["value"] is True
 
 
-def test_build_cli_parser_help_lists_flags_and_defaults(
+def test_build_cli_parser_formats_grouped_sections_and_synopsis(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     questions = [
@@ -522,8 +524,12 @@ def test_build_cli_parser_help_lists_flags_and_defaults(
 
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
-    assert "--create-github-repo" in help_text
-    assert "--no-create-github-repo" in help_text
+    assert "Usage: sprout new [options] TEMPLATE DESTINATION" in help_text
+    assert "Project:" in help_text
+    assert "Metadata:" in help_text
+    assert "Git:" in help_text
+    assert "Features:" in help_text
+    assert "--[no-]create-github-repo" in help_text
     assert "Create repo [default: no]" in help_text
     assert "[default: demo]" in help_text
     assert "[default: author]" not in help_text
@@ -548,10 +554,12 @@ def test_build_cli_parser_boolean_pair_action_conflicts() -> None:
         parser.parse_args(["new", "tmpl", "dest", "--no-git-init", "--git-init"])
 
 
-def test_build_cli_parser_formats_defaults_and_hides_help_probe_destination(
+def test_build_cli_parser_truncates_long_choices_and_formats_defaults(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    many_choices = [(f"opt_{i}", f"Option {i}") for i in range(15)]
     questions = [
+        Question(key="choice_field", prompt="Pick option", choices=many_choices),
         Question(key="list_field", prompt="Tags", default=["alpha", "beta"]),
         Question(key="probe_field", prompt="Name", default="__sprout_help_destination__"),
     ]
@@ -562,6 +570,7 @@ def test_build_cli_parser_formats_defaults_and_hides_help_probe_destination(
 
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
+    assert "...; 15 available" in help_text
     assert "[default: alpha, beta]" in help_text
     assert "__sprout_help_destination__" not in help_text
 
@@ -584,9 +593,9 @@ def test_build_cli_parser_derives_clean_metavars_and_supports_override(
 
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
-    assert "--package-name <NAME>" in help_text
-    assert "--author-email <EMAIL>" in help_text
-    assert "--repository-url <URL>" in help_text
-    assert "--python-version <VERSION>" in help_text
-    assert "--project-type <TYPE>" in help_text
-    assert "--custom-option <CUSTOM>" in help_text
+    assert "--package-name <name>" in help_text
+    assert "--author-email <email>" in help_text
+    assert "--repository-url <url>" in help_text
+    assert "--python-version <version>" in help_text
+    assert "--project-type <type>" in help_text
+    assert "--custom-option <custom>" in help_text

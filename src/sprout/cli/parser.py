@@ -9,6 +9,7 @@ from pathlib import Path
 
 from interfacy.backends.argparse import ArgumentParser
 
+from sprout.cli.help import SproutHelpRenderer, build_help_layout
 from sprout.errors import SproutManifestError
 from sprout.execution import resolve_template_directory
 from sprout.extensions.environment import build_environment
@@ -340,6 +341,29 @@ def _add_boolean_question_flags(
     )
 
 
+def _categorize_question(key: str) -> str:
+    cleaned = key.lower()
+    if any(k in cleaned for k in ("git_", "github_repo", "create_github", "create_git")):
+        return "git"
+    if any(
+        k in cleaned
+        for k in (
+            "license",
+            "actions",
+            "workflows",
+            "badges",
+            "setup_",
+            "include_",
+            "publish_to",
+        )
+    ):
+        return "features"
+    if cleaned in ("author_name", "author_email", "description", "repository_url", "homepage"):
+        return "metadata"
+
+    return "project"
+
+
 _METAVAR_EXACT_MAP: dict[str, str] = {
     "description": "<text>",
     "desc": "<text>",
@@ -411,15 +435,36 @@ def _metavar_for_question(question: Question) -> str:
     return _derive_metavar(question.key)
 
 
+_QUESTION_CATEGORIES = ("project", "metadata", "git", "features")
+_NEW_USAGE = "sprout new [options] TEMPLATE DESTINATION"
+
+
+def _question_option_groups(prepared: PreparedTemplate) -> dict[str, tuple[str, ...]]:
+    destinations = question_cli_destinations(prepared.questions)
+    grouped: dict[str, list[str]] = {category: [] for category in _QUESTION_CATEGORIES}
+    for question in prepared.questions:
+        dest = destinations.get(question.key)
+        if dest is not None:
+            grouped[_categorize_question(question.key)].append(dest)
+
+    return {category.capitalize(): tuple(dests) for category, dests in grouped.items() if dests}
+
+
 def build_cli_parser(
     prepared: PreparedTemplate | None,
     *,
     help_note: str | None = None,
     trusted_templates: Sequence[TrustedTemplate] | None = None,
 ) -> ArgumentParser:
+    renderer = SproutHelpRenderer(
+        usages={"sprout new": _NEW_USAGE} if prepared is not None else {},
+        option_groups=_question_option_groups(prepared) if prepared is not None else {},
+    )
     parser = ArgumentParser(
         prog="sprout",
         description="Create projects from Sprout templates.",
+        help_layout=build_help_layout(),
+        help_renderer=renderer,
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -461,7 +506,7 @@ def build_cli_parser(
         "new",
         help="Generate a project from a template.",
         description=new_description,
-        usage="sprout new [options] TEMPLATE DESTINATION" if prepared is not None else None,
+        usage=_NEW_USAGE if prepared is not None else None,
     )
     new_parser.add_argument(
         "template",
@@ -540,6 +585,13 @@ def _add_question_flags_to_parser(
             choices = question.resolve_choices({})
             if choices:
                 choice_values = [value for value, _label in choices]
+                if len(choice_values) > 8:
+                    choices_summary = (
+                        f"{', '.join(choice_values[:5])}, ...; {len(choice_values)} available"
+                    )
+                else:
+                    choices_summary = ", ".join(choice_values)
+                help_text = f"{help_text} (choices: {choices_summary})"
         if not _is_yes_no_question(question) and not callable(question.default):
             default_summary = _format_default_value(question.default, key=question.key)
             if default_summary is not None:
