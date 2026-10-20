@@ -126,9 +126,11 @@ def test_git_defaults_ignores_github_lookalike_host_in_local_config(
     )
     global_config = tmp_path / "global-config"
     global_config.write_text("", encoding="utf-8")
+
     for name in os.environ:
         if name.startswith("GIT_"):
             monkeypatch.delenv(name)
+
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     monkeypatch.chdir(tmp_path)

@@ -114,6 +114,7 @@ def _template_argument_candidates(args: Sequence[str]) -> set[tuple[str, ...]]:
     pending: list[tuple[int, tuple[str, ...], bool]] = [(0, (), False)]
     seen: set[tuple[int, tuple[str, ...], bool]] = set()
     completed: set[tuple[str, ...]] = set()
+
     while pending:
         state = pending.pop()
         if state in seen:
@@ -291,21 +292,27 @@ class BooleanPairAction(argparse.Action):
         prior = getattr(namespace, self.dest, None)
         if prior is not None and prior != current:
             parser.error(f"argument {option_string}: not allowed with conflicting boolean option")
+
         setattr(namespace, self.dest, current)
 
 
 def _format_default_value(default: object, key: str | None = None) -> str | None:
     if default is None or default == "":
         return None
+
     if key in ("author_name", "author_email"):
         return None
+
     if isinstance(default, (list, tuple)):
         if not default:
             return None
+
         return ", ".join(str(item) for item in default)
+
     text = str(default)
     if _HELP_PROBE_DESTINATION in text or "sprout-help-destination" in text:
         return None
+
     return text
 
 
@@ -430,6 +437,7 @@ def _metavar_for_question(question: Question) -> str:
         val = explicit.strip()
         if not val.startswith("<") and not val.endswith(">"):
             return f"<{val.lower()}>"
+
         return val
 
     return _derive_metavar(question.key)
@@ -538,6 +546,7 @@ def question_cli_destinations(questions: Sequence[Question]) -> dict[str, str]:
     reserved = {"template", "destination", "force", "help"}
     used_dests: set[str] = set()
     destinations: dict[str, str] = {}
+
     for question in questions:
         dest = sanitize_question_key(question.key)
         if dest in reserved:
@@ -591,7 +600,9 @@ def _add_question_flags_to_parser(
                     )
                 else:
                     choices_summary = ", ".join(choice_values)
+
                 help_text = f"{help_text} (choices: {choices_summary})"
+
         if not _is_yes_no_question(question) and not callable(question.default):
             default_summary = _format_default_value(question.default, key=question.key)
             if default_summary is not None:

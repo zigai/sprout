@@ -305,6 +305,7 @@ def test_main_does_not_overwrite_outside_hard_link(
     assert protected.read_text(encoding="utf-8") == "protected"
     assert protected.stat().st_mode == mode
     assert (destination / "a.txt").read_text(encoding="utf-8") == "replacement"
+
     if suffix == ".txt.jinja":
         assert (destination / "a.txt").stat().st_mode == mode
 

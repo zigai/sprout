@@ -63,6 +63,7 @@ def test_validate_npm_package_name_enforces_length_and_reserved_names(
     valid, message = validate_npm_package_name(value)
 
     assert valid is expected
+
     if expected:
         assert message is None
     else:

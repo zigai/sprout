@@ -23,12 +23,14 @@ def _add_template_process(
 
     def observe_registry_write(event: str, args: tuple[object, ...]) -> None:
         nonlocal signaled
+
         if signaled:
             return
 
         if release is None and event in {"fcntl.flock", "msvcrt.locking"}:
             signaled = True
             ready.send(None)
+
             return
 
         if event != "open" or not isinstance(args[0], str) or not isinstance(args[2], int):
@@ -44,10 +46,12 @@ def _add_template_process(
 
         signaled = True
         ready.send(None)
+
         if release is not None and not release.wait(timeout=10):
             raise TimeoutError("registry writer was not released")
 
     sys.addaudithook(observe_registry_write)
+
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("sprout.registry.user_config_path", lambda *_args, **_kwargs: path.parent)
         assert main(["add", f"https://example.com/{name}.git", "--name", name]) == 0
@@ -87,12 +91,15 @@ def test_concurrent_add_commands_preserve_both_aliases(tmp_path: Path) -> None:
         }
     finally:
         release.set()
+
         for process in (first, second):
             if process.pid is not None:
                 process.join(timeout=10)
                 if process.is_alive():
                     process.terminate()
                     process.join(timeout=10)
+
                 process.close()
+
         for connection in (first_ready, first_signal, second_ready, second_signal):
             connection.close()

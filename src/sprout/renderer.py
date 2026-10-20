@@ -95,6 +95,7 @@ class TemplateRenderer:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     if source.suffix == ".jinja" and target.exists():
                         shutil.copymode(target, staging / target_relative)
+
                     (staging / target_relative).replace(target)
         except OSError as e:
             raise SproutGenerationError("failed to write generated files.") from e

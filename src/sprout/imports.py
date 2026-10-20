@@ -41,6 +41,7 @@ class TemplateImports:
             finally:
                 self._capture()
                 _import_scopes.pop()
+
                 for name in self.modules.keys() | displaced:
                     if name in before:
                         sys.modules[name] = before[name]

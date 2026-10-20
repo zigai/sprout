@@ -23,6 +23,7 @@ def cleanup_calls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
     monkeypatch.setattr(
         "sprout.template_source.tempfile.TemporaryDirectory", FakeTemporaryDirectory
     )
+
     return calls
 
 
