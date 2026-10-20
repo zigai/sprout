@@ -7,10 +7,10 @@ import pytest
 from rich.console import Console
 
 from sprout.errors import SproutPromptError
-from sprout.prompt.processing import ResolvedPrompt
+from sprout.prompt.layout import Layout, Step, build_layout
 from sprout.prompt.question import Question
 from sprout.prompt.session import QuestionPrompt, collect_answers
-from sprout.prompt.style import InlineStyle, Style
+from sprout.prompt.style import CompactStyle, RailStyle, Style
 from sprout.prompt.terminal import TerminalQuestion
 
 
@@ -36,11 +36,11 @@ def test_collect_answers_respects_question_condition(
 ) -> None:
     calls: list[str] = []
 
-    def fake_ask_question(question: Question, answers: dict[str, object], style: object) -> object:
-        calls.append(question.key)
+    def fake_ask(prompt: QuestionPrompt) -> object:
+        calls.append(prompt.question.key)
         return response
 
-    monkeypatch.setattr("sprout.prompt.session.ask_question", fake_ask_question)
+    monkeypatch.setattr(QuestionPrompt, "ask", fake_ask)
 
     questions = [
         Question(key="use_license", prompt="Use a license?"),
@@ -62,11 +62,11 @@ def test_collect_answers_chained_conditions_with_skipped_question(
 ) -> None:
     calls: list[str] = []
 
-    def fake_ask_question(question: Question, answers: dict[str, object], style: object) -> object:
-        calls.append(question.key)
+    def fake_ask(prompt: QuestionPrompt) -> object:
+        calls.append(prompt.question.key)
         return "fallback"
 
-    monkeypatch.setattr("sprout.prompt.session.ask_question", fake_ask_question)
+    monkeypatch.setattr(QuestionPrompt, "ask", fake_ask)
 
     questions = [
         Question(key="feature_enabled", prompt="Enable feature?"),
@@ -91,10 +91,10 @@ def test_collect_answers_chained_conditions_with_skipped_question(
 def test_collect_answers_applies_cli_override_when_condition_would_skip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_ask_question(question: Question, answers: dict[str, object], style: object) -> object:
-        raise AssertionError(f"unexpected prompt for {question.key}")
+    def fake_ask(prompt: QuestionPrompt) -> object:
+        raise AssertionError(f"unexpected prompt for {prompt.question.key}")
 
-    monkeypatch.setattr("sprout.prompt.session.ask_question", fake_ask_question)
+    monkeypatch.setattr(QuestionPrompt, "ask", fake_ask)
 
     def failing_condition(_answers: dict[str, object]) -> bool:
         raise RuntimeError("condition should not run")
@@ -120,10 +120,10 @@ def test_collect_answers_applies_cli_override_when_condition_would_skip(
 def test_collect_answers_exits_when_condition_returns_non_bool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_ask_question(question: Question, answers: dict[str, object], style: object) -> object:
-        raise AssertionError(f"unexpected prompt for {question.key}")
+    def fake_ask(prompt: QuestionPrompt) -> object:
+        raise AssertionError(f"unexpected prompt for {prompt.question.key}")
 
-    monkeypatch.setattr("sprout.prompt.session.ask_question", fake_ask_question)
+    monkeypatch.setattr(QuestionPrompt, "ask", fake_ask)
 
     questions = [
         Question(
@@ -137,6 +137,17 @@ def test_collect_answers_exits_when_condition_returns_non_bool(
         collect_answers(questions)
 
 
+def _layout(question: Question, style: Style | None = None) -> Layout:
+    return build_layout(style or CompactStyle(), [question])
+
+
+def _record_answers(monkeypatch: pytest.MonkeyPatch, summaries: list[str]) -> None:
+    monkeypatch.setattr(
+        "sprout.prompt.session.print_answer",
+        lambda _question, display, _layout: summaries.append(display),
+    )
+
+
 def test_prompt_for_text_accepts_empty_string_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -144,17 +155,14 @@ def test_prompt_for_text_accepts_empty_string_default(
     summaries: list[str] = []
 
     monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: False)
-    monkeypatch.setattr("sprout.prompt.terminal.supports_live_interaction", lambda: False)
     monkeypatch.setattr("sprout.prompt.terminal.console.input", lambda _prompt: "")
     monkeypatch.setattr(
-        "sprout.prompt.session.print_error", lambda message, _style: errors.append(str(message))
+        "sprout.prompt.session.print_error", lambda message, _layout: errors.append(str(message))
     )
-    monkeypatch.setattr(
-        "sprout.prompt.session.print_text_summary", lambda value, _style: summaries.append(value)
-    )
+    _record_answers(monkeypatch, summaries)
 
     question = Question(key="description", prompt="Description", default="")
-    result = QuestionPrompt(question, {}, Style()).ask()
+    result = QuestionPrompt(question, {}, _layout(question)).ask()
 
     assert result == ""
     assert summaries == [""]
@@ -168,15 +176,14 @@ def test_prompt_for_text_noninteractive_retries_until_valid(
     errors: list[str] = []
 
     monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: False)
-    monkeypatch.setattr("sprout.prompt.terminal.supports_live_interaction", lambda: False)
     monkeypatch.setattr("sprout.prompt.terminal.console.input", lambda _prompt: next(responses))
     monkeypatch.setattr(
-        "sprout.prompt.session.print_error", lambda message, _style: errors.append(str(message))
+        "sprout.prompt.session.print_error", lambda message, _layout: errors.append(str(message))
     )
-    monkeypatch.setattr("sprout.prompt.session.print_text_summary", lambda _value, _style: None)
+    _record_answers(monkeypatch, [])
 
     question = Question(key="name", prompt="Project name")
-    result = QuestionPrompt(question, {}, Style()).ask()
+    result = QuestionPrompt(question, {}, _layout(question)).ask()
 
     assert result == "value"
     assert "Please provide a value." in errors
@@ -198,7 +205,6 @@ def test_fallback_single_choice_preserves_values_and_rejects_unknown(
 ) -> None:
     inputs = iter(responses)
     monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: False)
-    monkeypatch.setattr("sprout.prompt.terminal.supports_live_interaction", lambda: False)
     monkeypatch.setattr("sprout.prompt.terminal.console.input", lambda _prompt: next(inputs))
     question = Question(
         key="license",
@@ -206,7 +212,7 @@ def test_fallback_single_choice_preserves_values_and_rejects_unknown(
         choices=[("MIT", "Uppercase license"), ("mit", "Lowercase license")],
     )
 
-    assert QuestionPrompt(question, {}, Style()).ask() == expected
+    assert QuestionPrompt(question, {}, _layout(question)).ask() == expected
 
 
 @pytest.mark.parametrize(
@@ -231,7 +237,7 @@ def test_fallback_choice_rejects_default_outside_choices(
         multiselect=multiselect,
     )
 
-    assert QuestionPrompt(question, {}, Style()).ask() == expected
+    assert QuestionPrompt(question, {}, _layout(question)).ask() == expected
 
 
 @pytest.mark.parametrize(
@@ -253,69 +259,43 @@ def test_fallback_choice_preserves_label_identity(
         choices=[("dry-run", "Preview"), ("publish", "PREVIEW")],
     )
 
-    assert QuestionPrompt(question, {}, Style()).ask() == expected
+    assert QuestionPrompt(question, {}, _layout(question)).ask() == expected
 
 
-def test_question_prompt_shows_header_for_live_inline_choice(
+def test_live_yes_no_question_parses_selection_and_prints_label(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    events: list[str] = []
-    summaries: list[object] = []
+    summaries: list[str] = []
     monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
-    monkeypatch.setattr(
-        TerminalQuestion,
-        "print_header",
-        lambda _terminal: events.append("header"),
-    )
-    monkeypatch.setattr(TerminalQuestion, "should_use_inline", lambda _terminal: True)
-    monkeypatch.setattr(
-        TerminalQuestion,
-        "run_inline_application",
-        lambda _terminal: events.append("inline") or "no",
-    )
-    monkeypatch.setattr(
-        "sprout.prompt.session.print_choice_summary",
-        lambda _question, value, labels, _style: summaries.append((value, labels[value])),
-    )
+    monkeypatch.setattr(TerminalQuestion, "run_menu_application", lambda _terminal, _default: "no")
+    _record_answers(monkeypatch, summaries)
     question = Question.yes_no(
         key="publish",
         prompt="Publish?",
         help_text="Requires credentials.",
     )
 
-    result = QuestionPrompt(question, {}, Style()).ask()
+    result = QuestionPrompt(question, {}, _layout(question)).ask()
 
     assert result is False
-    assert events == ["header", "inline"]
-    assert summaries == [("no", "No")]
+    assert summaries == ["No"]
 
 
-@pytest.mark.parametrize("inline", [True, False])
-def test_choice_validation_retries_without_committing_rejected_answer(
+def test_choice_validation_shows_error_in_prompt_without_committing_answer(
     monkeypatch: pytest.MonkeyPatch,
-    inline: bool,
 ) -> None:
     selections = iter(["yes", "no"])
-    errors: list[str] = []
-    summaries: list[object] = []
+    shown: list[tuple[object, str | None]] = []
+    summaries: list[str] = []
     answers = {"description": ""}
+
+    def fake_menu(terminal: TerminalQuestion, default: object) -> object:
+        shown.append((default, terminal.view.error))
+        return next(selections)
+
     monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
-    monkeypatch.setattr(TerminalQuestion, "should_use_inline", lambda _terminal: inline)
-    monkeypatch.setattr(
-        TerminalQuestion, "run_inline_application", lambda _terminal: next(selections)
-    )
-    monkeypatch.setattr(
-        TerminalQuestion,
-        "run_choice_application",
-        lambda _terminal, _choices, _default: next(selections),
-    )
-    monkeypatch.setattr(
-        "sprout.prompt.session.print_error", lambda error, _style: errors.append(str(error))
-    )
-    monkeypatch.setattr(
-        "sprout.prompt.session.print_choice_summary",
-        lambda _question, value, _labels, _style: summaries.append(value),
-    )
+    monkeypatch.setattr(TerminalQuestion, "run_menu_application", fake_menu)
+    _record_answers(monkeypatch, summaries)
     question = Question.yes_no(
         key="publish",
         prompt="Publish?",
@@ -327,100 +307,120 @@ def test_choice_validation_retries_without_committing_rejected_answer(
         ],
     )
 
-    assert QuestionPrompt(question, answers, Style()).ask() is False
-    assert errors == ["A description is required."]
-    assert summaries == ["no"]
+    assert QuestionPrompt(question, answers, _layout(question)).ask() is False
+    assert shown == [("yes", None), ("yes", "A description is required.")]
+    assert summaries == ["No"]
     assert answers == {"description": ""}
 
 
 @pytest.mark.parametrize(
-    ("width", "expected_branch"),
-    [(20, "inline"), (19, "menu")],
+    ("width", "expected_kind"),
+    [(19, "confirm"), (18, "select")],
 )
-def test_question_prompt_selects_inline_only_when_choice_row_fits(
+def test_two_choices_render_inline_only_when_row_fits(
     monkeypatch: pytest.MonkeyPatch,
     width: int,
-    expected_branch: str,
+    expected_kind: str,
 ) -> None:
-    stream = StringIO()
     monkeypatch.setattr(
-        "sprout.prompt.terminal.console",
-        Console(file=stream, force_terminal=False, width=width),
+        "sprout.prompt.session.console",
+        Console(file=StringIO(), force_terminal=False, width=width),
     )
-    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
-    monkeypatch.setattr(TerminalQuestion, "print_header", lambda _terminal: None)
-    calls: list[object] = []
-    monkeypatch.setattr(
-        TerminalQuestion,
-        "run_inline_application",
-        lambda _terminal: calls.append("inline") or "alpha",
-    )
-
-    def fake_menu(
-        _terminal: TerminalQuestion,
-        choices: object,
-        default: object,
-    ) -> str:
-        calls.append(("menu", list(choices), default))
-        return "alpha"
-
-    monkeypatch.setattr(TerminalQuestion, "run_choice_application", fake_menu)
-    monkeypatch.setattr(
-        "sprout.prompt.session.print_choice_summary",
-        lambda *_args: None,
-    )
-    style = Style(
-        inline=InlineStyle(
-            selected_icon="◆",
-            unselected_icon="◇",
-            separator=" <-> ",
-        )
-    )
-    choices = [("alpha", "Alpha"), ("beta", "Beta")]
     question = Question(
         key="kind",
         prompt="Kind",
-        choices=choices,
+        choices=[("alpha", "Alpha"), ("beta", "Beta")],
         default="alpha",
     )
-    terminal = TerminalQuestion(
-        question,
-        ResolvedPrompt.from_question(question, {}),
-        style,
-    )
 
-    assert terminal.should_use_inline() is (expected_branch == "inline")
-    result = QuestionPrompt(question, {}, style).ask()
-
-    assert result == "alpha"
-
-    if expected_branch == "inline":
-        assert calls == ["inline"]
-    else:
-        assert calls == [("menu", choices, "alpha")]
+    assert QuestionPrompt(question, {}, _layout(question)).view.kind == expected_kind
 
 
-def test_live_text_prompt_erases_input_and_prints_summary(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_live_text_prompt_prints_typed_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     summaries: list[str] = []
     monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
-    monkeypatch.setattr(TerminalQuestion, "print_header", lambda _terminal: None)
     monkeypatch.setattr(
-        TerminalQuestion,
-        "read_text_response",
-        lambda _terminal, _default: "typed response",
+        TerminalQuestion, "run_text_application", lambda _terminal, _initial: "typed response"
     )
-    monkeypatch.setattr(
-        "sprout.prompt.session.print_text_summary",
-        lambda value, _style: summaries.append(value),
-    )
+    _record_answers(monkeypatch, summaries)
     question = Question(key="description", prompt="Description")
 
-    result = QuestionPrompt(question, {}, Style()).ask()
+    result = QuestionPrompt(question, {}, _layout(question)).ask()
 
     assert result == "typed response"
     assert summaries == ["typed response"]
-    from sprout.prompt import session
 
-    assert not hasattr(session, "highlight_prompt_line")
+
+def test_live_text_validation_error_keeps_typed_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter(["Bad", "good"])
+    shown: list[tuple[str, str | None]] = []
+
+    def fake_text(terminal: TerminalQuestion, initial: str) -> str:
+        shown.append((initial, terminal.view.error))
+        return next(responses)
+
+    monkeypatch.setattr("sprout.prompt.session.supports_live_interaction", lambda: True)
+    monkeypatch.setattr(TerminalQuestion, "run_text_application", fake_text)
+    _record_answers(monkeypatch, [])
+    question = Question(
+        key="name",
+        prompt="Name",
+        validators=[lambda raw: (raw.islower(), "Use lowercase.")],
+    )
+
+    assert QuestionPrompt(question, {}, _layout(question)).ask() == "good"
+    assert shown == [("", None), ("Bad", "Use lowercase.")]
+
+
+def test_collect_answers_counts_steps_for_questions_left_to_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    steps: list[tuple[str, Step | None]] = []
+
+    def fake_ask(prompt: QuestionPrompt) -> object:
+        steps.append((prompt.question.key, prompt.view.step))
+        return "value"
+
+    monkeypatch.setattr(QuestionPrompt, "ask", fake_ask)
+    questions = [
+        Question(key="first", prompt="First"),
+        Question(key="given", prompt="Given"),
+        Question(key="maybe", prompt="Maybe", when=lambda answers: "first" in answers),
+        Question(key="never", prompt="Never", when=False),
+        Question(key="last", prompt="Last"),
+    ]
+
+    collect_answers(questions, initial_answers={"given": "cli"})
+
+    assert steps == [("first", Step(1, 3)), ("maybe", Step(2, 3)), ("last", Step(3, 3))]
+
+
+@pytest.mark.parametrize(
+    ("initial_answers", "title", "expected_lines"),
+    [
+        ({"name": "cli"}, None, []),
+        ({"name": "cli"}, "Make a demo", ["┌   sprout   Make a demo", "│", "└"]),
+        ({}, None, ["┌   sprout", "│", "└"]),
+    ],
+    ids=["nothing-asked", "title-only", "asked"],
+)
+def test_rail_frame_wraps_title_and_asked_questions(
+    monkeypatch: pytest.MonkeyPatch,
+    initial_answers: dict[str, object],
+    title: str | None,
+    expected_lines: list[str],
+) -> None:
+    stream = StringIO()
+    monkeypatch.setattr(
+        "sprout.prompt.terminal.console", Console(file=stream, force_terminal=False, width=40)
+    )
+    monkeypatch.setattr(QuestionPrompt, "ask", lambda _prompt: "value")
+
+    collect_answers(
+        [Question(key="name", prompt="Name")],
+        style=RailStyle(),
+        initial_answers=initial_answers,
+        title=title,
+    )
+
+    assert [line.rstrip() for line in stream.getvalue().splitlines()] == expected_lines

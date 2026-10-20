@@ -336,7 +336,7 @@ def title(context: ManifestContext) -> str | None:
 ```
 
 The title is evaluated before answers are collected. For prompt appearance, assign `style` to a
-`sprout.Style` instance.
+`sprout.CompactStyle` (the default) or `sprout.RailStyle` instance.
 
 ## Custom generation
 

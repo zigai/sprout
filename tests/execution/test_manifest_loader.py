@@ -17,7 +17,7 @@ from sprout.manifest_loader import (
     resolve_questions,
 )
 from sprout.prompt.question import Question
-from sprout.prompt.style import Style
+from sprout.prompt.style import RailStyle
 from tests.support.template_factory import TemplateFactory
 
 
@@ -90,7 +90,10 @@ def test_manifest_style_must_be_style_instance() -> None:
     module = ModuleType("manifest_module")
     module.style = "nope"
 
-    with pytest.raises(SproutManifestError, match=r"must be an instance of sprout\.Style"):
+    with pytest.raises(
+        SproutManifestError,
+        match=r"must be an instance of sprout\.CompactStyle or sprout\.RailStyle",
+    ):
         ManifestReader(vars(module)).style()
 
 
@@ -252,10 +255,10 @@ def test_load_manifest_module_supports_local_imports(tmp_path: Path) -> None:
 def test_load_manifest_happy_path(make_template: TemplateFactory) -> None:
     template_root = make_template(
         """
-        from sprout import Question, Style
+        from sprout import Question, RailStyle
 
         questions = [Question(key="name", prompt="Name")]
-        style = Style()
+        style = RailStyle()
         template_dir = "template"
         cli_boolean_style = "yes-no"
 
@@ -267,7 +270,7 @@ def test_load_manifest_happy_path(make_template: TemplateFactory) -> None:
     manifest = load_manifest(template_root)
 
     assert manifest.style is not None
-    assert isinstance(manifest.style, Style)
+    assert isinstance(manifest.style, RailStyle)
     assert manifest.template_dir == "template"
     assert manifest.cli_boolean_style == "yes-no"
     assert manifest.skip is not None

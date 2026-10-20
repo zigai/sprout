@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from io import StringIO
+from typing import Any
 
 import pytest
-from prompt_toolkit.application import create_app_session
-from prompt_toolkit.data_structures import Size
+from prompt_toolkit.application import Application, create_app_session
+from prompt_toolkit.data_structures import Point, Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output.vt100 import Vt100_Output
 from rich.cells import cell_len
 from rich.console import Console
 
-from sprout.prompt.processing import ResolvedPrompt
+from sprout.prompt.layout import Layout, PromptView, build_layout
 from sprout.prompt.question import Question
-from sprout.prompt.style import InlineStyle, MenuStyle, Style
+from sprout.prompt.style import CompactStyle, Hints, RailStyle, Style
 from sprout.prompt.terminal import (
     DEFAULT_THEME,
     DefaultPlaceholderBindings,
@@ -24,7 +25,14 @@ from sprout.prompt.terminal import (
     console,
     fallback_default_values,
     fallback_lookup_maps,
+    prompt_toolkit_style_string,
 )
+
+STYLES = [pytest.param(CompactStyle(), id="compact"), pytest.param(RailStyle(), id="rail")]
+
+
+def _layout(question: Question, style: Style | None = None) -> Layout:
+    return build_layout(style or CompactStyle(), [question])
 
 
 def test_fallback_default_values_and_choice_value_helpers() -> None:
@@ -48,11 +56,13 @@ def test_fallback_lookup_maps_and_token_resolution() -> None:
         {"1": "tests", "2": "lint"},
     )
 
+    question = Question(key="workflow", prompt="Workflow")
     prompt = FallbackChoicePrompt(
-        question=Question(key="workflow", prompt="Workflow"),
+        question=question,
         answers={},
         default_value=None,
         choices=choices,
+        layout=_layout(question),
     )
 
     assert prompt._resolve_token("1") == "tests"
@@ -65,10 +75,9 @@ def test_resolve_fallback_choice_uses_default_and_reports_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     question = Question(key="license", prompt="License")
-    style = Style()
     errors: list[str] = []
     monkeypatch.setattr(
-        "sprout.prompt.terminal.print_error", lambda message, _style: errors.append(str(message))
+        "sprout.prompt.terminal.print_error", lambda message, _layout: errors.append(str(message))
     )
 
     prompt = FallbackChoicePrompt(
@@ -76,7 +85,7 @@ def test_resolve_fallback_choice_uses_default_and_reports_empty(
         answers={},
         default_value="mit",
         choices=[("mit", "MIT")],
-        style=style,
+        layout=_layout(question),
     )
     resolved = prompt.resolve_choice("")
     assert resolved == "mit"
@@ -86,7 +95,7 @@ def test_resolve_fallback_choice_uses_default_and_reports_empty(
         answers={},
         default_value=None,
         choices=[("mit", "MIT")],
-        style=style,
+        layout=_layout(question),
     )
     unresolved = prompt_without_default.resolve_choice("")
     assert unresolved is None
@@ -132,18 +141,18 @@ def test_fallback_choice_multiselect_retries_on_unknown(
 ) -> None:
     responses: Iterator[str] = iter(["oops", "1,2"])
     errors: list[str] = []
-    summaries: list[object] = []
+    summaries: list[str] = []
 
     monkeypatch.setattr("sprout.prompt.terminal.console.input", lambda _prompt: next(responses))
     monkeypatch.setattr(
-        "sprout.prompt.terminal.print_error", lambda message, _style: errors.append(str(message))
+        "sprout.prompt.terminal.print_error", lambda message, _layout: errors.append(str(message))
     )
     monkeypatch.setattr(
         "sprout.prompt.terminal.print_fallback_choices", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(
-        "sprout.prompt.terminal.print_choice_summary",
-        lambda _question, value, _map, _style: summaries.append(value),
+        "sprout.prompt.terminal.print_answer",
+        lambda _question, display, _layout: summaries.append(display),
     )
 
     question = Question(key="workflows", prompt="Workflows", multiselect=True)
@@ -152,145 +161,303 @@ def test_fallback_choice_multiselect_retries_on_unknown(
         answers={},
         default_value=[],
         choices=[("tests", "Tests"), ("lint", "Lint")],
-        style=Style(),
+        layout=_layout(question),
     ).ask()
 
     assert result == ["tests", "lint"]
     assert any("Unknown choice" in error for error in errors)
-    assert summaries
-    assert summaries[-1] == ["tests", "lint"]
+    assert summaries == ["Tests, Lint"]
+
+
+@pytest.mark.parametrize(
+    ("rich_style", "expected"),
+    [
+        ("bright_cyan", "ansibrightcyan"),
+        ("white", "ansigray"),
+        ("bold black on bright_cyan", "bold ansiblack bg:ansibrightcyan"),
+        ("dim italic #22d3ee", "dim italic #22d3ee"),
+        ("color(196)", "#ff0000"),
+        ("default on default", ""),
+        ("", ""),
+    ],
+)
+def test_prompt_toolkit_style_string_keeps_named_colors_and_attributes(
+    rich_style: str,
+    expected: str,
+) -> None:
+    assert prompt_toolkit_style_string(rich_style) == expected
 
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 
-def _rendered_application_lines(output: str) -> list[str]:
+def _final_frame(output: str) -> list[str]:
     rendered = output[: output.rfind("\x1b[J")]
-    return [line for line in _ANSI_ESCAPE.sub("", rendered).splitlines() if line]
+    frames = _ANSI_ESCAPE.sub("\x00", rendered)
+    return [line.replace("\x00", "") for line in frames.splitlines() if line.strip("\x00 ")]
 
 
-def test_print_header_separates_and_indents_wrapped_help(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _run_application(keys: str, run: Callable[[], object], *, rows: int = 20) -> tuple[object, str]:
     stream = StringIO()
-    capture = Console(file=stream, force_terminal=False, width=32)
-    monkeypatch.setattr("sprout.prompt.terminal.console", capture)
+    output = Vt100_Output(stream, get_size=lambda: Size(rows=rows, columns=40), term="xterm")
+    with create_pipe_input() as pipe:
+        pipe.send_text(keys)
+        with create_app_session(input=pipe, output=output):
+            result = run()
+
+    return result, stream.getvalue()
+
+
+@pytest.mark.parametrize("style", STYLES)
+def test_print_header_indents_wrapped_help(monkeypatch: pytest.MonkeyPatch, style: Style) -> None:
+    stream = StringIO()
+    monkeypatch.setattr(
+        "sprout.prompt.terminal.console", Console(file=stream, force_terminal=False, width=32)
+    )
     question = Question(
         key="project",
         prompt="Choose a project",
         help="This help sentence is long enough to wrap across multiple lines.",
         choices=[("one", "First"), ("two", "Second")],
     )
-    terminal = TerminalQuestion(
-        question,
-        ResolvedPrompt.from_question(question, {}),
-        Style(),
+    view = PromptView(
+        question=question, kind="select", choices=list(question.resolve_choices({}) or [])
     )
 
-    terminal.print_header()
+    TerminalQuestion(view, build_layout(style, [question])).print_header()
 
-    lines = stream.getvalue().splitlines()
-    assert lines[0].rstrip() == "? Choose a project"
-    assert len(lines[1:]) > 1
-    assert all(line.startswith("  ") for line in lines[1:])
+    lines = [line for line in stream.getvalue().splitlines() if line.strip()]
+    title_index = next(idx for idx, line in enumerate(lines) if "Choose a project" in line)
+    help_lines = lines[title_index + 1 :]
+    prefix = help_lines[0][: help_lines[0].index("This")]
+    assert len(help_lines) > 1
+    assert all(line.startswith(prefix) and len(line) > len(prefix) for line in help_lines)
+    assert all(cell_len(line) <= 32 for line in lines)
     assert "First" not in stream.getvalue()
-    assert "Enter select" not in stream.getvalue()
 
 
-def test_inline_application_wraps_footer_and_erases_completed_body() -> None:
+@pytest.mark.parametrize("style", STYLES)
+def test_confirm_application_moves_selection_and_erases_when_done(style: Style) -> None:
     question = Question(
         key="confirm",
         prompt="Confirm",
         choices=[("yes", "Yes"), ("no", "No")],
         default="yes",
     )
-    style = Style(inline=InlineStyle(instruction="←/→ move  Enter select"))
-    terminal = TerminalQuestion(
-        question,
-        ResolvedPrompt.from_question(question, {}),
-        style,
+    view = PromptView(
+        question=question, kind="confirm", choices=list(question.resolve_choices({}) or [])
     )
-    stream = StringIO()
-    output = Vt100_Output(
-        stream,
-        get_size=lambda: Size(rows=12, columns=40),
-        term="xterm",
-    )
+    terminal = TerminalQuestion(view, build_layout(style, [question]))
 
-    with create_pipe_input() as pipe:
-        pipe.send_text("\x1b[C\r")
-        with create_app_session(input=pipe, output=output):
-            result = terminal.run_inline_application()
+    result, raw = _run_application("\x1b[C\r", lambda: terminal.run_menu_application("yes"))
 
-    raw = stream.getvalue()
-    lines = _rendered_application_lines(raw)
+    lines = _final_frame(raw)
     assert result == "no"
-    assert lines == ["  ● Yes / ○ No", "  ←/→ move  Enter select"]
-    assert raw.count(style.inline.instruction) == 1
-    assert all(cell_len(line) <= 40 for line in lines)
+    assert any("Confirm" in line for line in lines)
+    assert any("Yes" in line and "No" in line for line in lines)
+    assert lines[-1].rstrip().endswith("confirm")
     assert "\x1b[?1049h" not in raw
-    assert raw.rfind("\x1b[J") > raw.rfind(style.inline.instruction)
+    assert raw.rfind("\x1b[J") > raw.rfind("confirm")
 
 
+@pytest.mark.parametrize("style", STYLES)
 @pytest.mark.parametrize(
-    ("multiselect", "keys", "expected", "instruction"),
-    [
-        (False, "\x1b[B\r", "lint", "↑/↓ move  Enter select"),
-        (
-            True,
-            " \x1b[B \r",
-            ["tests", "lint"],
-            "↑/↓ move  Space toggle  Enter confirm",
-        ),
-    ],
+    ("multiselect", "keys", "expected"),
+    [(False, "\x1b[B\r", "lint"), (True, " \x1b[B \r", ["tests", "lint"])],
+    ids=["single", "multiple"],
 )
-def test_vertical_application_wraps_footer_and_erases_completed_body(
+def test_menu_application_returns_selection_with_hints_last(
+    style: Style,
     multiselect: bool,
     keys: str,
     expected: object,
-    instruction: str,
 ) -> None:
-    choices = [("tests", "Run tests"), ("lint", "Lint and format")]
     question = Question(
         key="tasks",
         prompt="Tasks",
-        choices=choices,
-        default=[] if multiselect else "tests",
+        choices=[("tests", "Run tests"), ("lint", "Lint and format")],
         multiselect=multiselect,
     )
-    style = Style(
-        menu=MenuStyle(
-            instruction_single="↑/↓ move  Enter select",
-            instruction_multi="↑/↓ move  Space toggle  Enter confirm",
-        )
+    view = PromptView(
+        question=question,
+        kind="multiselect" if multiselect else "select",
+        choices=list(question.resolve_choices({}) or []),
     )
-    terminal = TerminalQuestion(
-        question,
-        ResolvedPrompt.from_question(question, {}),
-        style,
-    )
-    stream = StringIO()
-    output = Vt100_Output(
-        stream,
-        get_size=lambda: Size(rows=12, columns=40),
-        term="xterm",
+    terminal = TerminalQuestion(view, build_layout(style, [question]))
+
+    result, raw = _run_application(
+        keys, lambda: terminal.run_menu_application([] if multiselect else "tests")
     )
 
-    with create_pipe_input() as pipe:
-        pipe.send_text(keys)
-        with create_app_session(input=pipe, output=output):
-            result = terminal.run_choice_application(choices, question.default)
-
-    raw = stream.getvalue()
-    lines = _rendered_application_lines(raw)
+    lines = _final_frame(raw)
     assert result == expected
-    assert lines[-1] == f"  {instruction}"
     body_index = next(idx for idx, line in enumerate(lines) if "Run tests" in line)
-    assert body_index < lines.index(f"  {instruction}")
-    assert raw.count(instruction) == 1
+    assert body_index < len(lines) - 1
+    assert lines[-1].rstrip().endswith("confirm" if multiselect else "select")
     assert all(cell_len(line) <= 40 for line in lines)
     assert "\x1b[?1049h" not in raw
-    assert raw.rfind("\x1b[J") > raw.rfind(instruction)
+
+
+def test_multiselect_application_toggles_all_with_ctrl_a() -> None:
+    question = Question(
+        key="tasks",
+        prompt="Tasks",
+        choices=[("tests", "Tests"), ("lint", "Lint")],
+        multiselect=True,
+    )
+    view = PromptView(
+        question=question, kind="multiselect", choices=list(question.resolve_choices({}) or [])
+    )
+    terminal = TerminalQuestion(view, _layout(question))
+
+    result, _raw = _run_application("\x01\r", lambda: terminal.run_menu_application(["lint"]))
+
+    assert result == ["tests", "lint"]
+
+
+LICENSES = [
+    ("mit", "MIT License"),
+    ("apache", "Apache License 2.0"),
+    ("gpl3", "GNU General Public License v3.0"),
+    ("gpl2", "GNU General Public License v2.0"),
+    ("lgpl", "GNU Lesser General Public License"),
+]
+
+
+def _list_terminal(
+    *, multiselect: bool, choices: list[tuple[str, str]] = LICENSES
+) -> TerminalQuestion:
+    question = Question(key="license", prompt="License", choices=choices, multiselect=multiselect)
+    view = PromptView(
+        question=question,
+        kind="multiselect" if multiselect else "select",
+        choices=list(choices),
+    )
+    return TerminalQuestion(view, _layout(question))
+
+
+@pytest.mark.parametrize(
+    ("keys", "expected"),
+    [("gnu v2\r", "gpl2"), ("zzz\r\x15\r", "mit"), ("lesser\x15\r", "lgpl")],
+    ids=["words-match", "enter-ignored-without-match", "clear-keeps-cursor"],
+)
+def test_select_application_filters_by_typed_search(keys: str, expected: str) -> None:
+    terminal = _list_terminal(multiselect=False)
+
+    result, _raw = _run_application(keys, lambda: terminal.run_menu_application("mit"))
+
+    assert result == expected
+
+
+def test_multiselect_search_keeps_space_for_toggle_and_ctrl_a_selects_matches() -> None:
+    terminal = _list_terminal(multiselect=True)
+
+    result, _raw = _run_application("mit \x15gnu\x01\r", lambda: terminal.run_menu_application([]))
+
+    assert result == ["mit", "gpl3", "gpl2", "lgpl"]
+
+
+def test_long_list_scrolls_with_more_markers() -> None:
+    choices = [(f"item{index}", f"Item {index}") for index in range(12)]
+    terminal = _list_terminal(multiselect=False, choices=choices)
+
+    result, raw = _run_application("\x1b[6~\r", lambda: terminal.run_menu_application("item0"))
+
+    frames = _ANSI_ESCAPE.sub("", raw)
+    assert result == "item8"
+    assert "↓ 4 more" in frames
+    assert "Type to search" in frames
+    assert "Item 11" not in frames
+
+
+def test_search_cursor_follows_typed_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    choices = [(f"item{index}", f"Item {index}") for index in range(12)]
+    terminal = _list_terminal(multiselect=False, choices=choices)
+    cursors: list[Point] = []
+
+    with create_pipe_input() as pipe:
+
+        class RecordingApplication(Application[object]):
+            def __init__(self, **kwargs: Any) -> None:
+                super().__init__(after_render=self._record, **kwargs)
+
+            def _record(self, app: Application[object]) -> None:
+                screen = app.renderer._last_screen
+                if screen is None:
+                    return
+
+                cursors.append(screen.get_cursor_position(app.layout.current_window))
+                pipe.send_text("i" if len(cursors) == 1 else "\r")
+
+        monkeypatch.setattr("sprout.prompt.terminal.Application", RecordingApplication)
+        output = Vt100_Output(StringIO(), get_size=lambda: Size(rows=20, columns=40), term="xterm")
+        with create_app_session(input=pipe, output=output):
+            terminal.run_menu_application("item0")
+
+    search_column = len("     / ")
+    assert cursors[0] == Point(x=search_column, y=2)
+    assert cursors[1] == Point(x=search_column + 1, y=2)
+
+
+@pytest.mark.parametrize("style", STYLES)
+def test_long_list_shrinks_to_fit_short_terminal_with_wrapped_help(style: Style) -> None:
+    choices = [(f"item{index}", f"Item {index}") for index in range(12)]
+    question = Question(
+        key="item",
+        prompt="Item",
+        help="This help sentence is long enough to wrap across several lines here.",
+        choices=choices,
+    )
+    view = PromptView(question=question, kind="select", choices=choices)
+    terminal = TerminalQuestion(view, build_layout(style, [question]))
+
+    result, raw = _run_application("\r", lambda: terminal.run_menu_application("item0"), rows=10)
+
+    lines = _final_frame(raw)
+    assert result == "item0"
+    assert len(lines) <= 9
+    assert any("more" in line for line in lines)
+    assert any("Item 0" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("keys", "expected"),
+    [("\t\r", "demo"), ("\t-app\r", "demo-app"), ("typed\r", "typed"), ("\r", "")],
+    ids=["tab-default", "tab-then-edit", "typed", "empty"],
+)
+def test_text_application_fills_default_only_on_request(keys: str, expected: str) -> None:
+    question = Question(key="name", prompt="Name", default="demo")
+    view = PromptView(question=question, kind="text", choices=[], placeholder="demo")
+    terminal = TerminalQuestion(view, _layout(question))
+
+    result, _raw = _run_application(keys, terminal.run_text_application)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize("style", STYLES)
+def test_text_application_shows_error_and_keeps_typed_text(style: Style) -> None:
+    question = Question(key="name", prompt="Name")
+    view = PromptView(question=question, kind="text", choices=[], error="Use lowercase.")
+    terminal = TerminalQuestion(view, build_layout(style, [question]))
+
+    result, raw = _run_application("\r", lambda: terminal.run_text_application("Bad"))
+
+    assert result == "Bad"
+    assert any("Use lowercase." in line for line in _final_frame(raw))
+
+
+def test_hidden_hints_leave_no_hint_line() -> None:
+    question = Question(key="tasks", prompt="Tasks", choices=[("a", "A"), ("b", "B"), ("c", "C")])
+    view = PromptView(
+        question=question, kind="select", choices=list(question.resolve_choices({}) or [])
+    )
+    style = CompactStyle(hints=Hints(show=False))
+    terminal = TerminalQuestion(view, build_layout(style, [question]))
+
+    _result, raw = _run_application("\r", lambda: terminal.run_menu_application("a"))
+
+    assert "select" not in raw
 
 
 def test_default_theme_configures_blue_link_and_path_styles() -> None:

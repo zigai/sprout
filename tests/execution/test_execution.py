@@ -14,7 +14,7 @@ from sprout.execution import (
     resolve_template_directory,
 )
 from sprout.manifest import Manifest, ManifestContext
-from sprout.prompt.style import Style
+from sprout.prompt.style import CompactStyle
 
 
 def test_ensure_destination_creates_directory(tmp_path: Path) -> None:
@@ -75,7 +75,7 @@ def test_invoke_apply_uses_manifest_context_and_normalises_result(tmp_path: Path
         template_root=tmp_path,
         destination=tmp_path,
         answers={"name": "demo"},
-        style=Style(),
+        style=CompactStyle(),
     )
 
     def apply_fn(context: ManifestContext) -> Path:
@@ -98,7 +98,7 @@ def test_invoke_apply_rejects_invalid_return_type(tmp_path: Path) -> None:
                 template_root=tmp_path,
                 destination=tmp_path,
                 answers={},
-                style=Style(),
+                style=CompactStyle(),
             ),
         )
 
@@ -116,7 +116,7 @@ def test_invoke_apply_rejects_unsupported_required_parameter(tmp_path: Path) -> 
                 template_root=tmp_path,
                 destination=tmp_path,
                 answers={},
-                style=Style(),
+                style=CompactStyle(),
             ),
         )
 

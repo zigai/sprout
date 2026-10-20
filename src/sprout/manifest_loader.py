@@ -26,7 +26,7 @@ from sprout.manifest import (
     TitleCallable,
 )
 from sprout.prompt.question import AnswerMap, Question
-from sprout.prompt.style import Style
+from sprout.prompt.style import CompactStyle, RailStyle, Style
 
 
 @dataclass(frozen=True)
@@ -77,8 +77,10 @@ class ManifestReader:
         style_obj = self.optional("style")
         if style_obj is None:
             return None
-        if not isinstance(style_obj, Style):
-            raise SproutManifestError("style in sprout.py must be an instance of sprout.Style.")
+        if not isinstance(style_obj, CompactStyle | RailStyle):
+            raise SproutManifestError(
+                "style in sprout.py must be an instance of sprout.CompactStyle or sprout.RailStyle."
+            )
 
         return style_obj
 
@@ -120,6 +122,7 @@ class ManifestReader:
             def title(context: ManifestContext) -> str | None:
                 with self.imports.activate() if self.imports is not None else nullcontext():
                     result = title_obj(context)
+
                 if result is None or isinstance(result, str):
                     return result
 
@@ -164,6 +167,7 @@ class ManifestReader:
         def should_skip(relative_path: str, answers: AnswerMap) -> bool:
             with self.imports.activate() if self.imports is not None else nullcontext():
                 result = skip_obj(relative_path, answers)
+
             if not isinstance(result, bool):
                 raise SproutManifestError("should_skip_file in sprout.py must return a bool.")
 

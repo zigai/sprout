@@ -1,20 +1,28 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from sprout.display import shorten_home
 from sprout.errors import SproutPromptError
+from sprout.prompt.layout import Layout, PromptKind, PromptView, Step, build_layout
 from sprout.prompt.processing import AnswerProcessor, ResolvedPrompt
 from sprout.prompt.question import DefaultValue, Question
-from sprout.prompt.style import Style
+from sprout.prompt.style import CompactStyle, Style
 from sprout.prompt.terminal import (
     FallbackChoicePrompt,
     TerminalQuestion,
-    print_choice_summary,
+    choice_summary,
+    console,
+    print_answer,
     print_error,
-    print_text_summary,
+    print_fragments,
     supports_live_interaction,
 )
+
+
+def _is_provided(question: Question, provided: Mapping[str, DefaultValue]) -> bool:
+    return provided.get(question.key) is not None
 
 
 def collect_answers(
@@ -22,12 +30,23 @@ def collect_answers(
     *,
     style: Style | None = None,
     initial_answers: dict[str, DefaultValue] | None = None,
+    title: str | None = None,
 ) -> dict[str, DefaultValue]:
-    style = style or Style()
+    layout = build_layout(style or CompactStyle(), questions)
     answers: dict[str, DefaultValue] = {}
     provided = dict(initial_answers or {})
-    for question in questions:
-        if question.key in provided and provided[question.key] is not None:
+    asked = 0
+    opened = False
+
+    def open_frame() -> None:
+        nonlocal opened
+
+        if not opened:
+            print_fragments(layout.start(title), layout)
+            opened = True
+
+    for position, question in enumerate(questions):
+        if _is_provided(question, provided):
             raw_value = provided[question.key]
             try:
                 answers[question.key] = AnswerProcessor(question, answers).process_cli(raw_value)
@@ -44,9 +63,33 @@ def collect_answers(
         if not should_ask:
             continue
 
-        answers[question.key] = ask_question(question, answers, style)
+        open_frame()
+        remaining = sum(
+            later.when is not False and not _is_provided(later, provided)
+            for later in questions[position:]
+        )
+        step = Step(index=asked + 1, total=asked + remaining)
+        answers[question.key] = QuestionPrompt(question, answers, layout, step=step).ask()
+        asked += 1
+
+    if title:
+        open_frame()
+
+    if opened:
+        print_fragments(layout.finish(), layout)
 
     return answers
+
+
+def _prompt_kind(resolved: ResolvedPrompt, layout: Layout) -> PromptKind:
+    if not resolved.has_choices:
+        return "text"
+    if resolved.question.multiselect:
+        return "multiselect"
+    if resolved.inline_choice_enabled and layout.confirm_width(resolved.choices) <= console.width:
+        return "confirm"
+
+    return "select"
 
 
 class QuestionPrompt:
@@ -56,70 +99,84 @@ class QuestionPrompt:
         self,
         question: Question,
         answers: dict[str, DefaultValue],
-        style: Style,
+        layout: Layout,
+        *,
+        step: Step | None = None,
     ) -> None:
         self.question = question
         self.answers = answers
-        self.style = style
+        self.layout = layout
         self.resolved = ResolvedPrompt.from_question(question, answers)
         self.processor = AnswerProcessor(question, answers)
-        self.terminal = TerminalQuestion(question, self.resolved, style)
+        default_value = self.resolved.default_value
+        self.view = PromptView(
+            question=question,
+            kind=_prompt_kind(self.resolved, layout),
+            choices=list(self.resolved.choices),
+            placeholder="" if default_value in (None, "", []) else str(default_value),
+            step=step,
+        )
+        self.terminal = TerminalQuestion(self.view, layout)
 
     def ask(self) -> DefaultValue:
-        self.terminal.print_header()
         if self.resolved.has_choices:
             return self._ask_choice()
 
         return self._ask_text()
 
     def _ask_choice(self) -> DefaultValue:
-        choices = list(self.resolved.choices)
+        choices = self.view.choices
         if not choices:
             return self.resolved.default_value
 
-        value_to_label = dict(choices)
+        if not supports_live_interaction():
+            self.terminal.print_header()
+
+            return FallbackChoicePrompt(
+                question=self.question,
+                answers=self.answers,
+                default_value=self.resolved.default_value,
+                choices=choices,
+                layout=self.layout,
+            ).ask()
+
         current_default = self.resolved.default_value
-
         while True:
-            if not supports_live_interaction():
-                return FallbackChoicePrompt(
-                    question=self.question,
-                    answers=self.answers,
-                    default_value=current_default,
-                    choices=choices,
-                    value_to_label=value_to_label,
-                    style=self.style,
-                ).ask()
-
-            if self.terminal.should_use_inline():
-                selection = self.terminal.run_inline_application()
-            else:
-                selection = self.terminal.run_choice_application(choices, current_default)
-            raw_selection = selection if isinstance(selection, str) else str(selection)
+            selection = self.terminal.run_menu_application(current_default)
+            raw_selection = ", ".join(selection) if isinstance(selection, list) else str(selection)
             try:
                 processed = self.processor.process(selection, raw=raw_selection)
-                print_choice_summary(
-                    self.question,
-                    selection,
-                    value_to_label,
-                    self.style,
-                )
             except ValueError as e:
-                print_error(e, self.style)
+                self.view.error = str(e)
                 current_default = selection
                 continue
+
+            print_answer(
+                self.question,
+                choice_summary(self.question, selection, dict(choices)),
+                self.layout,
+            )
 
             return processed
 
     def _ask_text(self) -> DefaultValue:
         default_value = self.resolved.default_value
+        live = supports_live_interaction()
+        if not live:
+            self.terminal.print_header()
 
+        typed = ""
         while True:
-            response = self.terminal.read_text_response(default_value)
+            response = (
+                self.terminal.run_text_application(typed)
+                if live
+                else self.terminal.read_fallback_text()
+            )
             stripped = response.strip()
             if not stripped:
                 if default_value in (None, []):
-                    print_error("Please provide a value.", self.style)
+                    self._report("Please provide a value.", live)
+                    typed = ""
                     continue
 
                 candidate: DefaultValue = default_value
@@ -130,13 +187,20 @@ class QuestionPrompt:
 
             try:
                 candidate = self.processor.process(candidate, raw=parser_input)
-                display_value = parser_input or str(candidate)
-                print_text_summary(display_value, self.style)
             except ValueError as e:
-                print_error(e, self.style)
+                self._report(str(e), live)
+                typed = response
                 continue
 
+            print_answer(self.question, parser_input or str(candidate), self.layout)
+
             return candidate
+
+    def _report(self, message: str, live: bool) -> None:
+        if live:
+            self.view.error = message
+        else:
+            print_error(message, self.layout)
 
 
 def ask_question(
@@ -144,7 +208,7 @@ def ask_question(
     answers: dict[str, DefaultValue],
     style: Style,
 ) -> DefaultValue:
-    return QuestionPrompt(question, answers, style).ask()
+    return QuestionPrompt(question, answers, build_layout(style, [question])).ask()
 
 
 def confirm_overwrite(path: Path, *, style: Style) -> bool:
@@ -153,7 +217,7 @@ def confirm_overwrite(path: Path, *, style: Style) -> bool:
 
     question = Question(
         key="overwrite",
-        prompt=f"Allow overwriting files in '{path}'?",
+        prompt=f"Allow overwriting files in '{shorten_home(path)}'?",
         choices=[("yes", "Yes"), ("no", "No")],
         default="no",
     )

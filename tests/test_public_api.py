@@ -14,10 +14,12 @@ import sprout.renderer as renderer_module
 from sprout import (
     DEFAULT_THEME,
     NO_LICENSE,
+    CompactStyle,
     CurrentYearExtension,
     GitDefaultsExtension,
     ManifestContext,
     Question,
+    RailStyle,
     SproutError,
     SproutGenerationError,
     SproutManifestError,
@@ -25,7 +27,6 @@ from sprout import (
     SproutRegistryError,
     SproutScaffoldError,
     SproutTemplateSourceError,
-    Style,
     render_templates,
     validate_repository_url,
 )
@@ -39,7 +40,8 @@ def test_readme_documented_root_imports_resolve_to_owning_modules() -> None:
     assert GitDefaultsExtension is git_defaults_module.GitDefaultsExtension
     assert ManifestContext is manifest_module.ManifestContext
     assert render_templates is renderer_module.render_templates
-    assert Style is style_module.Style
+    assert CompactStyle is style_module.CompactStyle
+    assert RailStyle is style_module.RailStyle
     assert DEFAULT_THEME is terminal_module.DEFAULT_THEME
 
 

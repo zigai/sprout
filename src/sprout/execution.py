@@ -6,6 +6,7 @@ from pathlib import Path
 
 from rich.text import Text
 
+from sprout.display import shorten_home
 from sprout.errors import SproutGenerationError
 from sprout.extensions.environment import build_environment
 from sprout.manifest import (
@@ -22,7 +23,7 @@ from sprout.manifest_loader import (
 )
 from sprout.prompt.question import DefaultValue
 from sprout.prompt.session import collect_answers, confirm_overwrite
-from sprout.prompt.style import Style
+from sprout.prompt.style import CompactStyle, Style
 from sprout.prompt.terminal import console
 from sprout.renderer import render_templates
 
@@ -39,7 +40,7 @@ def ensure_destination(path: Path, *, force: bool, style: Style | None = None) -
     Raises:
         SproutGenerationError: If `path` points to a file or overwrite confirmation is declined.
     """
-    style = style or Style()
+    style = style or CompactStyle()
 
     try:
         destination_exists = path.exists()
@@ -53,7 +54,10 @@ def ensure_destination(path: Path, *, force: bool, style: Style | None = None) -
             return
 
         if not force and any(path.iterdir()):
-            console.print(Text(f"Destination '{path}' is not empty.", style="bold yellow"))
+            console.print(
+                Text(f"Destination '{shorten_home(path)}' is not empty.", style="bold yellow")
+            )
+
             if not confirm_overwrite(path, style=style):
                 raise SproutGenerationError("aborted by user.")
     except OSError as e:
@@ -73,7 +77,7 @@ def summarize(created: Sequence[Path], destination: Path | None = None) -> None:
 
     heading = "\nGenerated files"
     if destination is not None:
-        heading = f"{heading} in {destination}"
+        heading = f"{heading} in {shorten_home(destination)}"
 
     console.print(Text(heading, style="white"), soft_wrap=True)
 
@@ -107,7 +111,7 @@ class ManifestExecution:
         self.force = force
         self.initial_answers = initial_answers
         self.summary = summary
-        self.style = manifest.style or Style()
+        self.style = manifest.style or CompactStyle()
         self.actual_template_dir = resolve_template_directory(
             self.template_root,
             manifest.template_dir,
@@ -119,16 +123,13 @@ class ManifestExecution:
         self.answers: dict[str, DefaultValue] = {}
 
     def execute(self) -> tuple[dict[str, DefaultValue], Sequence[Path] | None]:
-        display_title(
-            self.manifest.title,
-            context=self._context(),
-        )
-
+        title = resolve_title(self.manifest.title, context=self._context())
         questions = resolve_questions(self.manifest.questions, self.env, self.destination)
         self.answers = collect_answers(
             questions,
             style=self.style,
             initial_answers=self.initial_answers,
+            title=title,
         )
         ensure_destination(self.destination, force=self.force, style=self.style)
 
@@ -244,21 +245,15 @@ def invoke_apply(
     return normalize_apply_result(result)
 
 
-def display_title(
+def resolve_title(
     title: str | TitleCallable | None,
     *,
     context: ManifestContext,
-) -> None:
-    if title is None:
-        return
+) -> str | None:
+    if title is None or isinstance(title, str):
+        return title
 
-    if isinstance(title, str):
-        console.print(title)
-        return
-
-    result = title(context)
-    if result is not None:
-        console.print(result)
+    return title(context)
 
 
 __all__ = [

@@ -12,11 +12,12 @@ from sprout.cli.parser import (
     question_cli_destinations,
     resolve_registered_template,
 )
+from sprout.display import shorten_home
 from sprout.execution import execute_manifest, normalize_created_paths, summarize
 from sprout.manifest_loader import load_manifest
 from sprout.prompt.question import DefaultValue, Question
 from sprout.prompt.session import ask_question
-from sprout.prompt.style import Style
+from sprout.prompt.style import CompactStyle
 from sprout.prompt.terminal import console, supports_live_interaction
 from sprout.registry import (
     TemplateRegistry,
@@ -88,7 +89,8 @@ def add_template(source: str, *, name: str | None = None) -> int:
     registry.save(TrustedTemplate(name=template_name, source=normalized_source), replacing=existing)
     console.print(
         Text(
-            f"Trusted template '{template_name}' now points to {normalized_source}.", style="green"
+            f"Trusted template '{template_name}' now points to {shorten_home(normalized_source)}.",
+            style="green",
         )
     )
 
@@ -112,7 +114,7 @@ def list_templates() -> int:
     table.add_column("Name")
     table.add_column("Source")
     for entry in entries:
-        table.add_row(entry.name, entry.source)
+        table.add_row(entry.name, shorten_home(entry.source))
 
     console.print(table)
 
@@ -126,7 +128,7 @@ def _prompt_template_name(default_name: str) -> str:
     answer = ask_question(
         Question(key="name", prompt="Template name", default=default_name),
         {},
-        Style(),
+        CompactStyle(),
     )
     if not isinstance(answer, str):
         raise SystemExit("template name must be text.")
@@ -143,11 +145,11 @@ def _confirm_template_replace(existing: TrustedTemplate, source: str) -> bool:
     answer = ask_question(
         Question.yes_no(
             key="replace",
-            prompt=f"Replace trusted template '{existing.name}' with {source}?",
+            prompt=f"Replace trusted template '{existing.name}' with {shorten_home(source)}?",
             default=False,
         ),
         {},
-        Style(),
+        CompactStyle(),
     )
 
     return answer is True
