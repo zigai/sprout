@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -147,7 +148,9 @@ def test_main_generates_project_from_local_template(
     make_template: TemplateFactory,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     template_root = make_template(
         """
         from sprout import Question
@@ -162,7 +165,7 @@ def test_main_generates_project_from_local_template(
     assert exit_code == 0
     assert (destination / "README.md").read_text(encoding="utf-8") == "name=demo\n"
     output = capsys.readouterr().out
-    assert f"Generated files in {destination}" in output
+    assert f"Generated files in ~{os.sep}generated" in output
     assert "  • README.md" in output
 
 

@@ -191,8 +191,10 @@ def test_prompt_toolkit_style_string_keeps_named_colors_and_attributes(
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 
-def _final_frame(output: str) -> list[str]:
-    rendered = output[: output.rfind("\x1b[J")]
+def _first_frame(output: str) -> list[str]:
+    # Later renders are partial diffs whose timing depends on how the platform delivers piped keys.
+    start = output.index("\x1b[J")
+    rendered = output[start : output.index("\x1b[?7h", start)]
     frames = _ANSI_ESCAPE.sub("\x00", rendered)
     return [line.replace("\x00", "") for line in frames.splitlines() if line.strip("\x00 ")]
 
@@ -251,7 +253,7 @@ def test_confirm_application_moves_selection_and_erases_when_done(style: Style) 
 
     result, raw = _run_application("\x1b[C\r", lambda: terminal.run_menu_application("yes"))
 
-    lines = _final_frame(raw)
+    lines = _first_frame(raw)
     assert result == "no"
     assert any("Confirm" in line for line in lines)
     assert any("Yes" in line and "No" in line for line in lines)
@@ -289,7 +291,7 @@ def test_menu_application_returns_selection_with_hints_last(
         keys, lambda: terminal.run_menu_application([] if multiselect else "tests")
     )
 
-    lines = _final_frame(raw)
+    lines = _first_frame(raw)
     assert result == expected
     body_index = next(idx for idx, line in enumerate(lines) if "Run tests" in line)
     assert body_index < len(lines) - 1
@@ -413,7 +415,7 @@ def test_long_list_shrinks_to_fit_short_terminal_with_wrapped_help(style: Style)
 
     result, raw = _run_application("\r", lambda: terminal.run_menu_application("item0"), rows=10)
 
-    lines = _final_frame(raw)
+    lines = _first_frame(raw)
     assert result == "item0"
     assert len(lines) <= 9
     assert any("more" in line for line in lines)
@@ -444,7 +446,7 @@ def test_text_application_shows_error_and_keeps_typed_text(style: Style) -> None
     result, raw = _run_application("\r", lambda: terminal.run_text_application("Bad"))
 
     assert result == "Bad"
-    assert any("Use lowercase." in line for line in _final_frame(raw))
+    assert any("Use lowercase." in line for line in _first_frame(raw))
 
 
 def test_hidden_hints_leave_no_hint_line() -> None:
