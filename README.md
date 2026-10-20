@@ -116,6 +116,7 @@ Question(
     default="demo",
     metavar="name",
 )
+```
 
 `key` is the answer dictionary key. It also becomes the CLI flag name.
 
