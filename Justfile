@@ -84,7 +84,7 @@ run *args: _require-uv
   uv run sprout {{args}}
 
 # Setup or update local dev environment, keeps previously installed packages
-sync: _require-uv
+setup: _require-uv
   uv sync --inexact --group dev
   uv run --group dev pre-commit install
 
@@ -116,6 +116,3 @@ help:
 
 alias fmt := format
 alias cov := coverage
-alias pyrefly := typecheck
-
-alias dev := sync
