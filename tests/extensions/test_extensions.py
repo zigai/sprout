@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
 from jinja2 import Environment
 from jinja2.ext import Extension
 
+from sprout.errors import SproutGenerationError
 from sprout.extensions import CurrentYearExtension, GitDefaultsExtension, build_environment
 
 
@@ -64,12 +66,8 @@ def test_git_defaults_extension_sets_environment_globals(monkeypatch: pytest.Mon
 def test_git_defaults_extension_handles_missing_git(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sprout.extensions.git_defaults.shutil.which", lambda name: None)
 
-    env = Environment()
-    GitDefaultsExtension(env)
-
-    assert env.globals["git_user_name"] == ""
-    assert env.globals["git_user_email"] == ""
-    assert env.globals["github_username"] == ""
+    with pytest.raises(SproutGenerationError, match="Git is required"):
+        GitDefaultsExtension(Environment())
 
 
 @pytest.mark.parametrize(
@@ -139,3 +137,15 @@ def test_git_defaults_ignores_github_lookalike_host_in_local_config(
     GitDefaultsExtension(env)
 
     assert env.globals["github_username"] == "fallback-user"
+
+
+@pytest.mark.parametrize(("returncode", "output"), [(1, ""), (0, "")])
+def test_git_defaults_rejects_unresolved_branch(monkeypatch, returncode, output):
+    monkeypatch.setattr("sprout.extensions.git_defaults.shutil.which", lambda name: "/fake/git")
+    monkeypatch.setattr(
+        "sprout.extensions.git_defaults.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], returncode, output, ""),
+    )
+
+    with pytest.raises(SproutGenerationError, match="Could not resolve Git's default branch"):
+        GitDefaultsExtension(Environment())

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -32,17 +33,39 @@ def test_run_git_post_actions_creates_initial_commit_and_github_repo(
     def fake_run(
         command: list[str],
         *,
-        cwd: Path,
+        cwd: Path | None = None,
         check: bool = False,
         capture_output: bool = False,
         text: bool = False,
     ) -> subprocess.CompletedProcess[str]:
-        assert cwd == tmp_path
+        assert cwd == (None if command[1:3] == ["var", "GIT_DEFAULT_BRANCH"] else tmp_path)
         assert check is False
         commands.append(command)
+
+        if command[0] == "/usr/bin/gh":
+            output = (
+                json.dumps(
+                    {
+                        "id": 1234,
+                        "html_url": "https://github.com/example/sample",
+                        "clone_url": "https://github.com/example/sample.git",
+                        "default_branch": "main",
+                    }
+                )
+                if "POST" in command
+                else ("Organization" if command[2].startswith("users/") else "")
+            )
+            return subprocess.CompletedProcess(command, 0, output, "")
+
         returncode = 1 if command[:4] == ["/usr/bin/git", "diff", "--cached", "--quiet"] else 0
 
-        return subprocess.CompletedProcess(command, returncode, "", "")
+        output = (
+            "main\n"
+            if command[1:3] in (["var", "GIT_DEFAULT_BRANCH"], ["symbolic-ref", "--short"])
+            else ""
+        )
+
+        return subprocess.CompletedProcess(command, returncode, output, "")
 
     monkeypatch.setattr("sprout.helpers.post_actions.shutil.which", fake_which)
     monkeypatch.setattr("sprout.helpers.post_actions.subprocess.run", fake_run)
@@ -77,17 +100,16 @@ def test_run_git_post_actions_creates_initial_commit_and_github_repo(
     ] in commands
     assert [
         "/usr/bin/gh",
-        "repo",
-        "create",
-        "--private",
-        "--description",
-        "Demo project.",
-        "--source",
-        str(tmp_path),
-        "--remote",
-        "origin",
-        "--",
-        "zigai/demo",
+        "api",
+        "--method",
+        "POST",
+        "orgs/zigai/repos",
+        "-f",
+        "name=demo",
+        "-F",
+        "private=true",
+        "-f",
+        "description=Demo project.",
     ] in commands
     assert [
         "/usr/bin/git",
@@ -100,7 +122,6 @@ def test_run_git_post_actions_creates_initial_commit_and_github_repo(
         "origin",
         "HEAD",
     ] in commands
-    assert not any(command[:2] == ["/usr/bin/gh", "api"] for command in commands)
     assert not any(command[:3] == ["/usr/bin/git", "branch", "-M"] for command in commands)
     assert console.messages == []
 
@@ -114,7 +135,19 @@ def test_create_github_repo_passes_option_like_name_as_argument(
     def fake_run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
         commands.append(command)
 
-        return subprocess.CompletedProcess(command, 0, "", "")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            json.dumps(
+                {
+                    "id": 1234,
+                    "html_url": "https://github.com/example/sample",
+                    "clone_url": "https://github.com/example/sample.git",
+                    "default_branch": "trunk",
+                }
+            ),
+            "",
+        )
 
     monkeypatch.setattr(
         "sprout.helpers.post_actions.shutil.which",
@@ -128,7 +161,7 @@ def test_create_github_repo_passes_option_like_name_as_argument(
         console=FakeConsole(),
     ).create_github_repo()
 
-    assert commands[0][-2:] == ["--", "--help"]
+    assert commands[0][-4:] == ["-f", "name=--help", "-F", "private=true"]
 
 
 def test_run_git_post_actions_uses_github_default_branch_for_new_repo(
@@ -146,12 +179,12 @@ def test_run_git_post_actions_uses_github_default_branch_for_new_repo(
     def fake_run(
         command: list[str],
         *,
-        cwd: Path,
+        cwd: Path | None = None,
         check: bool = False,
         capture_output: bool = False,
         text: bool = False,
     ) -> subprocess.CompletedProcess[str]:
-        assert cwd == tmp_path
+        assert cwd == (None if command[1:3] == ["var", "GIT_DEFAULT_BRANCH"] else tmp_path)
         assert check is False
         commands.append(command)
 
@@ -160,7 +193,23 @@ def test_run_git_post_actions_uses_github_default_branch_for_new_repo(
 
         if command[:4] == ["/usr/bin/git", "diff", "--cached", "--quiet"]:
             return subprocess.CompletedProcess(command, 1, "", "")
-        if command[:3] == ["/usr/bin/gh", "api", "repos/{owner}/{repo}"]:
+        if command[0] == "/usr/bin/gh":
+            output = (
+                json.dumps(
+                    {
+                        "id": 1234,
+                        "html_url": "https://github.com/example/sample",
+                        "clone_url": "https://github.com/example/sample.git",
+                        "default_branch": "trunk",
+                    }
+                )
+                if "POST" in command
+                else "Organization"
+            )
+            return subprocess.CompletedProcess(command, 0, output, "")
+        if command[1:3] == ["var", "GIT_DEFAULT_BRANCH"]:
+            return subprocess.CompletedProcess(command, 0, "development\n", "")
+        if command[1:3] == ["symbolic-ref", "--short"]:
             return subprocess.CompletedProcess(command, 0, "trunk\n", "")
 
         return subprocess.CompletedProcess(command, 0, "", "")
@@ -192,7 +241,7 @@ def test_run_git_post_actions_uses_github_default_branch_for_new_repo(
         "push",
         "--set-upstream",
         "origin",
-        "trunk",
+        "HEAD",
     ] in commands
     assert console.messages == []
 
@@ -207,17 +256,23 @@ def test_run_git_post_actions_initializes_git_without_github(
     def fake_run(
         command: list[str],
         *,
-        cwd: Path,
+        cwd: Path | None = None,
         check: bool = False,
         capture_output: bool = False,
         text: bool = False,
     ) -> subprocess.CompletedProcess[str]:
-        assert cwd == tmp_path
+        assert cwd == (None if command[1:3] == ["var", "GIT_DEFAULT_BRANCH"] else tmp_path)
         assert check is False
         commands.append(command)
         returncode = 1 if command[:4] == ["/usr/bin/git", "diff", "--cached", "--quiet"] else 0
 
-        return subprocess.CompletedProcess(command, returncode, "", "")
+        output = (
+            "main\n"
+            if command[1:3] in (["var", "GIT_DEFAULT_BRANCH"], ["symbolic-ref", "--short"])
+            else ""
+        )
+
+        return subprocess.CompletedProcess(command, returncode, output, "")
 
     monkeypatch.setattr("sprout.helpers.post_actions.shutil.which", lambda name: "/usr/bin/git")
     monkeypatch.setattr("sprout.helpers.post_actions.subprocess.run", fake_run)

@@ -311,6 +311,7 @@ extensions = [GitDefaultsExtension, CurrentYearExtension]
 
 When `extensions` is omitted, the default environment includes Git defaults:
 
+- `default_branch`
 - `git_user_name`
 - `git_user_email`
 - `github_username`

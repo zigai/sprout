@@ -7,6 +7,30 @@ from urllib.parse import urlsplit
 from jinja2 import Environment
 from jinja2.ext import Extension
 
+from sprout.errors import SproutGenerationError
+
+
+def get_default_branch() -> str:
+    git_executable = shutil.which("git")
+    if git_executable is None:
+        raise SproutGenerationError("Git is required to resolve the default branch.")
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            [git_executable, "var", "GIT_DEFAULT_BRANCH"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as e:
+        raise SproutGenerationError("Could not resolve Git's default branch.") from e
+
+    branch = result.stdout.strip()
+    if result.returncode != 0 or not branch:
+        raise SproutGenerationError("Could not resolve Git's default branch.")
+
+    return branch
+
 
 class GitDefaultsExtension(Extension):
     """Jinja extension that injects Git configuration defaults."""
@@ -14,6 +38,10 @@ class GitDefaultsExtension(Extension):
     def __init__(self, environment: Environment) -> None:
         super().__init__(environment)
 
+        # Jinja2 3.1.6 accepts arbitrary globals; Pyrefly 1.0.0 infers only builtins.
+        # String globals are covered by test_main_renders_effective_git_default_branch;
+        # remove the ignore when Jinja annotates Environment.globals accurately.
+        environment.globals.update(default_branch=get_default_branch())  # pyrefly: ignore[bad-argument-type]
         environment.globals["git_user_name"] = self._get_git_config("user.name")  # pyrefly: ignore[unsupported-operation]
         environment.globals["git_user_email"] = self._get_git_config("user.email")  # pyrefly: ignore[unsupported-operation]
         environment.globals["github_username"] = self._get_github_username()  # pyrefly: ignore[unsupported-operation]
@@ -91,4 +119,4 @@ def _query_local_git_remotes() -> list[str]:
     return remotes
 
 
-__all__ = ["GitDefaultsExtension"]
+__all__ = ["GitDefaultsExtension", "get_default_branch"]

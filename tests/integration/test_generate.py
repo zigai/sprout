@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
+from jinja2 import UndefinedError
 
 from sprout.cli.app import main
 from sprout.execution import execute_manifest
@@ -421,3 +425,299 @@ def test_main_rejects_output_collisions_before_overwriting(
 
     assert protected.read_text(encoding="utf-8") == "protected"
     assert list(destination.iterdir()) == [protected]
+
+
+@pytest.mark.parametrize("branch", ["master", "development"])
+def test_main_renders_effective_git_default_branch(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    branch: str,
+) -> None:
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", branch)
+    template = make_template(
+        "questions = []",
+        files={"template/.github/workflows/tests.yml.jinja": "branches: [{{ default_branch }}]\n"},
+    )
+    destination = tmp_path / "generated"
+
+    assert main(["new", str(template), str(destination)]) == 0
+
+    assert (destination / ".github/workflows/tests.yml").read_text() == f"branches: [{branch}]\n"
+
+
+@pytest.mark.parametrize(
+    ("github", "remote_branch", "expected_branch"),
+    [
+        (False, "", "development"),
+        (True, "trunk", "trunk"),
+        (True, "", None),
+        (True, "null", None),
+    ],
+)
+def test_generation_renders_and_pushes_resolved_branch(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    github: bool,
+    remote_branch: str,
+    expected_branch: str | None,
+) -> None:
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "development")
+    template = make_template(
+        f"""
+        from sprout import render_templates
+        from sprout.helpers import ProjectPostActions
+
+        questions = []
+
+        def apply(context):
+            actions = ProjectPostActions(context.destination, {{
+                "create_github_repo": {github!r},
+                "git_init": True,
+                "repository_url": "https://github.com/example/sample",
+                "author_name": "Example Author",
+                "author_email": "author@example.com",
+            }})
+            def prepare():
+                context.answers["default_branch"] = actions.prepare_default_branch()
+
+            with actions.generation():
+                created = render_templates(context.env, context.template_dir,
+                                           context.destination, context.answers, prepare=prepare)
+                actions.run()
+                return created
+        """,
+        files={"template/.github/workflows/tests.yml.jinja": "branches: [{{ default_branch }}]\n"},
+    )
+    destination = tmp_path / "generated"
+    real_run = subprocess.run
+    real_which = shutil.which
+    pushed: list[str] = []
+    created: list[str] = []
+
+    def fake_run(command, **kwargs):
+        if command[0] == "/fake/gh":
+            if "POST" in command:
+                created.append("example/sample")
+
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    json.dumps(
+                        {
+                            "id": 1234,
+                            "html_url": "https://github.com/example/sample",
+                            "clone_url": "https://github.com/example/sample.git",
+                            "default_branch": remote_branch,
+                        }
+                    ),
+                    "",
+                )
+
+            if "DELETE" in command:
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            if command[2] == "users/example":
+                return subprocess.CompletedProcess(command, 0, "User", "")
+
+            if command[2] == "user":
+                return subprocess.CompletedProcess(command, 0, "example", "")
+
+            pytest.fail(f"Unexpected GitHub command: {command}")
+
+        if "push" in command:
+            pushed.append(
+                real_run(
+                    [real_which("git"), "symbolic-ref", "--short", "HEAD"],
+                    cwd=destination,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+            )
+
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/fake/gh" if name == "gh" else real_which(name)
+    )
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    if expected_branch is None:
+        with pytest.raises(
+            SystemExit, match="Could not resolve the GitHub repository's default branch"
+        ):
+            main(["new", str(template), str(destination)])
+
+        assert created == ["example/sample"]
+        assert pushed == []
+        assert not (destination / ".github/workflows/tests.yml").exists()
+
+        return
+
+    assert main(["new", str(template), str(destination)]) == 0
+
+    assert created == (["example/sample"] if github else [])
+    assert pushed == (["trunk"] if github else [])
+    assert (
+        destination / ".github/workflows/tests.yml"
+    ).read_text() == f"branches: [{expected_branch}]\n"
+    assert (
+        real_run(
+            [real_which("git"), "show", "HEAD:.github/workflows/tests.yml"],
+            cwd=destination,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        == f"branches: [{expected_branch}]\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("failure", "cleanup_fails", "expected_created"),
+    [
+        ("jinja", False, False),
+        ("path", False, False),
+        ("collision", False, False),
+        ("branch", False, True),
+        ("branch-path", False, True),
+        ("branch-collision", False, True),
+        ("branch", True, True),
+        ("write", False, True),
+        ("create", False, False),
+    ],
+)
+def test_generation_owns_only_repositories_it_creates(
+    make_template: TemplateFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    cleanup_fails: bool,
+    expected_created: bool,
+) -> None:
+    template = make_template(
+        """
+        from sprout import render_templates
+        from sprout.helpers import ProjectPostActions
+        questions = []
+        def apply(context):
+            context.answers["separator"] = "/"
+            actions = ProjectPostActions(context.destination, {
+                "create_github_repo": True, "repository_url": "https://github.com/example/sample",
+            })
+            def prepare():
+                context.answers["default_branch"] = actions.prepare_default_branch()
+            with actions.generation():
+                return render_templates(context.env, context.template_dir, context.destination,
+                                        context.answers, render_paths=True, prepare=prepare)
+        """,
+        files={"template/a.txt.jinja": "generated", "template/z.txt.jinja": "generated"},
+    )
+    source = template / "template"
+    invalid_sources = {
+        "jinja": ("z.txt.jinja", "{{ missing.attribute }}"),
+        "path": ("{{ '..' }}{{ separator }}escape.txt.jinja", "invalid"),
+        "collision": ("a.txt", "collision"),
+        "branch": (
+            "z.txt.jinja",
+            "{% if default_branch == 'trunk' %}{{ missing.attribute }}{% endif %}",
+        ),
+        "branch-path": (
+            "{{ '..' if default_branch == 'trunk' else 'valid' }}{{ separator }}escape.txt.jinja",
+            "invalid",
+        ),
+        "branch-collision": (
+            "{{ 'a.txt' if default_branch == 'trunk' else 'valid' }}.jinja",
+            "collision",
+        ),
+    }
+    if failure in invalid_sources:
+        name, content = invalid_sources[failure]
+        (source / name).write_text(content)
+
+    destination = tmp_path / "generated"
+    destination.mkdir()
+    protected = destination / "a.txt"
+    protected.write_text("original")
+    real_run = subprocess.run
+    real_which = shutil.which
+    real_replace = Path.replace
+    remote_exists = False
+    deleted: list[str] = []
+
+    def fake_run(command, **kwargs):
+        nonlocal remote_exists
+
+        if command[0] == "/fake/gh":
+            if "POST" in command:
+                remote_exists = failure != "create"
+                return subprocess.CompletedProcess(
+                    command,
+                    int(not remote_exists),
+                    json.dumps(
+                        {
+                            "id": 1234,
+                            "html_url": "https://github.com/example/sample",
+                            "clone_url": "https://github.com/example/sample.git",
+                            "default_branch": "trunk",
+                        }
+                    ),
+                    "repository already exists" if not remote_exists else "",
+                )
+
+            if "DELETE" in command:
+                deleted.append(command[-1])
+                assert remote_exists
+                remote_exists = cleanup_fails
+
+                return subprocess.CompletedProcess(
+                    command,
+                    int(cleanup_fails),
+                    "",
+                    "HTTP 403: delete_repo required" if cleanup_fails else "",
+                )
+
+            output = {"users/example": "User", "user": "example"}[command[2]]
+
+            return subprocess.CompletedProcess(command, 0, output, "")
+
+        assert "push" not in command
+
+        return real_run(command, **kwargs)
+
+    def replace(path, target):
+        if failure == "write" and Path(target) == destination / "z.txt":
+            raise OSError("injected replacement failure")
+
+        return real_replace(path, target)
+
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/fake/gh" if name == "gh" else real_which(name)
+    )
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(Path, "replace", replace)
+
+    if cleanup_fails:
+        with pytest.raises(ExceptionGroup) as error:
+            main(["new", str(template), str(destination), "--force"])
+
+        assert "https://github.com/example/sample" in str(error.value)
+        assert "1234" in str(error.value)
+        assert "missing" in str(error.value.exceptions[0])
+        assert "delete_repo" in str(error.value.exceptions[1])
+    else:
+        with pytest.raises((SystemExit, UndefinedError)):
+            main(["new", str(template), str(destination), "--force"])
+
+    assert deleted == (["repositories/1234"] if expected_created else [])
+    assert remote_exists is cleanup_fails
+    assert protected.read_text() == "original"
+    assert not (destination / "z.txt").exists()
