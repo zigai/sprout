@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import TracebackType
 from typing import Self
 
@@ -32,7 +32,7 @@ class TemplateSource:
 
             return cls(candidate.resolve())
 
-        url = _normalise_git_url(template_src)
+        url, subdirectory = _parse_remote_source(template_src)
         git_executable = _resolve_git_executable()
         try:
             temporary_directory = tempfile.TemporaryDirectory(prefix="sprout-template-")
@@ -41,28 +41,16 @@ class TemplateSource:
                 "failed to create temporary directory for template clone."
             ) from e
 
-        target_dir = Path(temporary_directory.name) / "template"
+        clone_dir = Path(temporary_directory.name) / "template"
 
         try:
-            subprocess.run(  # noqa: S603 - validated git clone invocation
-                [git_executable, "clone", "--depth", "1", "--", url, str(target_dir)],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:  # pragma: no cover - external dependency
-            _cleanup_failed_clone(temporary_directory, e)
-            raise SproutTemplateSourceError("failed to clone remote template.") from e
-        except OSError as e:
-            _cleanup_failed_clone(temporary_directory, e)
-            raise SproutTemplateSourceError(
-                "failed to launch git clone for remote template."
-            ) from e
+            _clone(git_executable, url, clone_dir, subdirectory)
+            root = _resolve_subdirectory(clone_dir, subdirectory)
         except BaseException as error:
             _cleanup_failed_clone(temporary_directory, error)
             raise
 
-        return cls(target_dir, temporary_directory)
+        return cls(root, temporary_directory)
 
     def __enter__(self) -> Self:
         return self
@@ -103,17 +91,109 @@ def _resolve_git_executable() -> str:
     return git_executable
 
 
-def _normalise_git_url(template_src: str) -> str:
+def _clone(
+    git_executable: str,
+    url: str,
+    target_dir: Path,
+    subdirectory: PurePosixPath | None,
+) -> None:
+    clone_args = ["clone", "--depth", "1"]
+    if subdirectory is not None:
+        clone_args += ["--filter=blob:none", "--sparse"]
+
+    commands = [[git_executable, *clone_args, "--", url, str(target_dir)]]
+    if subdirectory is not None:
+        commands.append(
+            [
+                git_executable,
+                "-C",
+                str(target_dir),
+                "sparse-checkout",
+                "set",
+                "--skip-checks",
+                "--",
+                subdirectory.as_posix(),
+            ]
+        )
+
+    for command in commands:
+        try:
+            subprocess.run(  # noqa: S603 - validated git clone invocation
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise SproutTemplateSourceError("failed to clone remote template.") from e
+        except OSError as e:
+            raise SproutTemplateSourceError(
+                "failed to launch git clone for remote template."
+            ) from e
+
+
+def _resolve_subdirectory(clone_dir: Path, subdirectory: PurePosixPath | None) -> Path:
+    if subdirectory is None:
+        return clone_dir
+
+    repository_root = clone_dir.resolve()
+    root = (clone_dir / subdirectory).resolve()
+    if not root.is_relative_to(repository_root):
+        raise SproutTemplateSourceError(
+            f"template path {subdirectory} resolves outside the repository."
+        )
+    if not root.is_dir():
+        raise SproutTemplateSourceError(
+            f"template path {subdirectory} is not a directory in the repository."
+        )
+    if not (root / "sprout.py").is_file():
+        raise SproutTemplateSourceError(f"template path {subdirectory} has no sprout.py.")
+
+    return root
+
+
+def _parse_remote_source(template_src: str) -> tuple[str, PurePosixPath | None]:
     cleaned = template_src.strip()
-    if cleaned.startswith(("http://", "https://", "git@", "ssh://")):
-        return cleaned
+    shorthand = _parse_github_shorthand(cleaned)
+    if shorthand is not None:
+        return shorthand
 
-    if cleaned.count("/") == 1 and " " not in cleaned:
-        owner, repo = cleaned.split("/", maxsplit=1)
-        repo_name = repo if repo.endswith(".git") else f"{repo}.git"
-        return f"https://github.com/{owner}/{repo_name}"
+    url, separator, path = cleaned.partition("#")
+    if not separator:
+        return url, None
 
-    return cleaned
+    return url, _parse_subdirectory(path, template_src)
+
+
+def _parse_github_shorthand(source: str) -> tuple[str, PurePosixPath | None] | None:
+    if any(character in source for character in " :#\\") or source.startswith(("/", ".", "~")):
+        return None
+
+    owner, _, rest = source.partition("/")
+    repo, _, path = rest.partition("/")
+    if not owner or not repo:
+        return None
+
+    repo_name = repo if repo.endswith(".git") else f"{repo}.git"
+    url = f"https://github.com/{owner}/{repo_name}"
+    if not path:
+        return url, None
+
+    return url, _parse_subdirectory(path, source)
+
+
+def _parse_subdirectory(path: str, template_src: str) -> PurePosixPath:
+    subdirectory = PurePosixPath(path.strip().strip("/"))
+    if subdirectory.parts in {(), (".",)}:
+        raise SproutTemplateSourceError(
+            f"template source {template_src} has an empty template path."
+        )
+    if ".." in subdirectory.parts:
+        raise SproutTemplateSourceError(
+            f"template path {path} in {template_src} escapes the repository."
+        )
+
+    return subdirectory
 
 
 __all__ = ["TemplateSource"]

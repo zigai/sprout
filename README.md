@@ -24,7 +24,8 @@ That single manifest drives interactive prompts, CLI flags, validation and condi
 Template files go in `template/`. `.jinja` files are rendered, everything else
 is copied.
 
-Works with local templates, Git repos, or `owner/repo` GitHub shorthand.
+Works with local templates, Git repos, or `owner/repo` GitHub shorthand, including templates in a
+repository subdirectory.
 
 Every question becomes a CLI flag so you can script it too:
 
@@ -57,7 +58,9 @@ sprout new <template> <project-path> [--force] [--<question-flag> <value> ...]
 ```
 
 `new` accepts a local template path, Git URL, `owner/repo` GitHub shorthand, or a trusted name added
-with `sprout add`. Pass values for question flags to skip those prompts:
+with `sprout add`. For a template in a repository subdirectory, use `owner/repo/path/to/template` or
+`<git-url>#path/to/template`; only that subdirectory is checked out. Pass values for question flags
+to skip those prompts:
 
 ```bash
 sprout new <template-path> <project-path> --project-name demo
@@ -87,7 +90,7 @@ sprout list
 
 ## Template structure
 
-The source root must contain `sprout.py`.
+The template root (the source, or its repository subdirectory) must contain `sprout.py`.
 
 The only required name is `questions`.
 

@@ -158,10 +158,15 @@ def normalize_template_source(source: str) -> str:
 
 def derive_template_name(source: str) -> str:
     cleaned = source.strip().rstrip("/\\")
-    if cleaned.startswith("git@") and ":" in cleaned:
-        cleaned = cleaned.rsplit(":", maxsplit=1)[1]
-    elif "://" in cleaned:
-        cleaned = cleaned.split("?", maxsplit=1)[0].split("#", maxsplit=1)[0]
+    if cleaned.startswith("git@") or "://" in cleaned:
+        location, _, template_path = cleaned.partition("#")
+        location = location.split("?", maxsplit=1)[0]
+        if template_path.strip("/"):
+            cleaned = template_path.rstrip("/")
+        elif location.startswith("git@") and ":" in location:
+            cleaned = location.rsplit(":", maxsplit=1)[1]
+        else:
+            cleaned = location.rstrip("/")
 
     source_path = PureWindowsPath(cleaned) if "\\" in cleaned else Path(cleaned)
     name = source_path.name.removesuffix(".git").strip()

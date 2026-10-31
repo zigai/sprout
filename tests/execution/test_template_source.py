@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
 from sprout.errors import SproutTemplateSourceError
-from sprout.template_source import TemplateSource, _normalise_git_url, _resolve_git_executable
+from sprout.template_source import TemplateSource, _parse_remote_source, _resolve_git_executable
 
 
 @pytest.fixture
@@ -170,13 +171,154 @@ def test_template_source_remote_success(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert cleanup_calls == [str(created_temp)]
 
 
-def test_resolve_git_executable_and_url_normalisation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_git_executable_reports_missing_git(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sprout.template_source.shutil.which", lambda _name: None)
 
     with pytest.raises(SproutTemplateSourceError, match="git is required"):
         _resolve_git_executable()
 
-    assert _normalise_git_url("owner/repo") == "https://github.com/owner/repo.git"
-    assert _normalise_git_url("https://example.com/repo.git") == "https://example.com/repo.git"
-    assert _normalise_git_url("owner/repo.git") == "https://github.com/owner/repo.git"
-    assert _normalise_git_url("local/path with space") == "local/path with space"
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("owner/repo", ("https://github.com/owner/repo.git", None)),
+        ("owner/repo.git", ("https://github.com/owner/repo.git", None)),
+        (
+            "owner/repo/templates/game/",
+            ("https://github.com/owner/repo.git", PurePosixPath("templates/game")),
+        ),
+        ("https://example.com/repo.git", ("https://example.com/repo.git", None)),
+        (
+            "https://example.com/repo.git#templates/game",
+            ("https://example.com/repo.git", PurePosixPath("templates/game")),
+        ),
+        (
+            "git@github.com:owner/repo.git#templates/game",
+            ("git@github.com:owner/repo.git", PurePosixPath("templates/game")),
+        ),
+        (
+            "file:///srv/repo.git#./templates//game",
+            ("file:///srv/repo.git", PurePosixPath("templates/game")),
+        ),
+        ("local/path with space", ("local/path with space", None)),
+    ],
+)
+def test_parse_remote_source(source: str, expected: tuple[str, PurePosixPath | None]) -> None:
+    assert _parse_remote_source(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        ("https://example.com/repo.git#", "empty template path"),
+        ("https://example.com/repo.git#/", "empty template path"),
+        ("https://example.com/repo.git#templates/../../x", "escapes the repository"),
+        ("owner/repo/../x", "escapes the repository"),
+    ],
+)
+def test_parse_remote_source_rejects_invalid_template_path(source: str, message: str) -> None:
+    with pytest.raises(SproutTemplateSourceError, match=message):
+        _parse_remote_source(source)
+
+
+def _git(*args: str) -> None:
+    git_executable = shutil.which("git")
+    assert git_executable is not None
+    subprocess.run(
+        [
+            git_executable,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.fixture
+def template_repo(tmp_path: Path) -> str:
+    repo = tmp_path / "repo"
+    files = {
+        "templates/demo/sprout.py": "questions = []\n",
+        "templates/demo/template/README.md": "demo\n",
+        "templates/empty/README.md": "no manifest\n",
+        "unrelated/data.txt": "unrelated\n",
+    }
+    for relative, content in files.items():
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    (repo / "templates" / "outside").symlink_to(tmp_path, target_is_directory=True)
+    _git("init", "--quiet", str(repo))
+    _git("-C", str(repo), "add", "--all")
+    _git("-C", str(repo), "commit", "--quiet", "--no-verify", "--message", "chore: init")
+
+    return repo.as_uri()
+
+
+@pytest.fixture
+def clone_tempdir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    tempdir = tmp_path / "clones"
+    tempdir.mkdir()
+    monkeypatch.setattr("sprout.template_source.tempfile.tempdir", str(tempdir))
+
+    return tempdir
+
+
+def test_template_source_clones_only_repository_subdirectory(
+    template_repo: str,
+    clone_tempdir: Path,
+) -> None:
+    source = TemplateSource.from_source(f"{template_repo}#templates/demo")
+    clone_dir = source.root.parent.parent
+
+    assert source.root.name == "demo"
+    assert (source.root / "sprout.py").is_file()
+    assert (source.root / "template" / "README.md").is_file()
+    assert not (clone_dir / "unrelated").exists()
+
+    source.close()
+
+    assert list(clone_tempdir.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("template_path", "message"),
+    [
+        ("templates/missing", "is not a directory in the repository"),
+        ("templates/demo/sprout.py", "is not a directory in the repository"),
+        ("templates/empty", "has no sprout.py"),
+        ("templates/outside", "resolves outside the repository"),
+    ],
+)
+def test_template_source_rejects_invalid_repository_subdirectory(
+    template_repo: str,
+    clone_tempdir: Path,
+    template_path: str,
+    message: str,
+) -> None:
+    with pytest.raises(SproutTemplateSourceError, match=message):
+        TemplateSource.from_source(f"{template_repo}#{template_path}")
+
+    assert list(clone_tempdir.iterdir()) == []
+
+
+def test_template_source_cleans_up_when_sparse_checkout_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    clone_tempdir: Path,
+) -> None:
+    def fail_sparse_checkout(args: list[str], **kwargs: object) -> object:
+        del kwargs
+        if "sparse-checkout" in args:
+            raise subprocess.CalledProcessError(128, args, stderr="fatal: sparse")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr("sprout.template_source.subprocess.run", fail_sparse_checkout)
+
+    with pytest.raises(SproutTemplateSourceError, match="failed to clone remote template"):
+        TemplateSource.from_source("owner/repo/templates/demo")
+
+    assert list(clone_tempdir.iterdir()) == []

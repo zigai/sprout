@@ -152,5 +152,25 @@ def test_template_source_normalization_and_name_derivation(tmp_path: Path) -> No
     assert derive_template_name("git@github.com:owner/repo.git") == "repo"
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "owner/repo/templates/game",
+        "https://github.com/owner/repo.git#templates/game/",
+        "https://github.com/owner/repo.git?ref=main#templates/game",
+        "git@github.com:owner/repo.git#templates/game",
+        "file:///srv/repo.git#templates/game",
+    ],
+)
+def test_template_subdirectory_source_is_stored_and_named_by_last_segment(
+    tmp_path: Path, source: str
+) -> None:
+    normalized = normalize_template_source(source)
+    registry = TemplateRegistry(tmp_path / "templates.json")
+    registry.save(TrustedTemplate(name=derive_template_name(normalized), source=normalized))
+
+    assert registry.entries() == (TrustedTemplate(name="game", source=source),)
+
+
 def test_template_name_derivation_supports_windows_paths() -> None:
     assert derive_template_name(r"C:\templates\local-template") == "local-template"
