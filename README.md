@@ -1,10 +1,11 @@
 # Sprout
 
-[![Tests](https://github.com/zigai/sprout/actions/workflows/tests.yml/badge.svg)](https://github.com/zigai/sprout/actions/workflows/tests.yml)
-[![PyPI version](https://badge.fury.io/py/sprout-template.svg)](https://badge.fury.io/py/sprout-template)
-![Supported versions](https://img.shields.io/badge/python-3.12+-blue.svg)
-[![Downloads](https://static.pepy.tech/badge/sprout-template)](https://pepy.tech/project/sprout-template)
-[![license](https://img.shields.io/github/license/zigai/sprout.svg)](https://github.com/zigai/sprout/blob/master/LICENSE)
+[![tests](https://img.shields.io/github/actions/workflow/status/zigai/sprout/tests.yml?branch=master&label=tests&labelColor=30363d)](https://github.com/zigai/sprout/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/sprout-template?label=PyPI&color=blue&logo=pypi&logoColor=white&labelColor=30363d)](https://pypi.org/project/sprout-template/)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=white&labelColor=30363d)](pyproject.toml)
+[![downloads](https://img.shields.io/pypi/dm/sprout-template?label=downloads&color=blue&labelColor=30363d)](https://pepy.tech/projects/sprout-template)
+[![downloads](https://img.shields.io/pepy/dt/sprout-template?label=downloads&color=blue&labelColor=30363d)](https://pepy.tech/projects/sprout-template)
+[![license](https://img.shields.io/github/license/zigai/sprout?label=license&labelColor=30363d)](LICENSE)
 
 Sprout is a Jinja2-based project generator with a Python manifest.
 
